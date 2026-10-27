@@ -50,6 +50,14 @@ check-benchmarks:
 	+@env RUSTUP_TOOLCHAIN=1.91.0 cargo check --locked -p ic-wire-benchmarks --all-targets --features wire,candid,ic
 	+@env RUSTUP_TOOLCHAIN=1.91.0 cargo check --locked -p ic-wire-benchmarks --example codec-wasm --target wasm32-unknown-unknown --features wire,candid
 	+@$(MAKE) check-consumer-benchmarks
+	+@$(MAKE) check-caller-output
+
+.PHONY: check-caller-output
+check-caller-output:
+	+@env cargo clippy --locked -p ic-wire-benchmarks --example caller-output-wasm --example caller-output-instructions --features caller-output,ic -- -D warnings
+	+@env cargo clippy --locked -p ic-wire-benchmarks --example caller-output-wasm --example caller-output-instructions --features caller-output-baseline,ic -- -D warnings
+	+@env cargo clippy --locked -p ic-wire-benchmarks --example caller-generation --features caller-generation -- -D warnings
+	+@env cargo clippy --locked -p ic-wire-benchmarks --example caller-generation --features caller-generation,caller-output-baseline -- -D warnings
 
 .PHONY: check-consumer-benchmarks
 check-consumer-benchmarks:
@@ -124,6 +132,7 @@ check-msrv:
 	+@env RUSTUP_TOOLCHAIN=1.91.0 cargo check --locked -p ic-wire --lib --target wasm32-unknown-unknown
 
 check-doc-links:
+	@perl scripts/ci/check-documentation-links.pl --root . docs/sdk-integration.md docs/evidence/sdk-output-0719/README.md
 	@perl scripts/ci/check-documentation-links.pl --root . AGENTS.md README.md crates/ic-wire/README.md crates/ic-wire-derive/README.md CHANGELOG.md docs/design.md docs/evaluation.md docs/candid-comparison.md docs/full-comparison-0710.md docs/evidence/full-comparison-0710/README.md docs/full-comparison-0613.md docs/hotspot-encoding-0613.md docs/candid-consumer-comparison.md docs/scaffold-validation.md docs/development.md docs/runtime.md docs/performance.md docs/evidence/runtime-0716/README.md docs/evidence/encoder-followup-0716/README.md docs/messagepack-comparison.md docs/runtime-optimization.md docs/allocation-comparison.md docs/bounded-allocation-study.md docs/consumer-fixtures.md docs/status/current.md docs/history/candid-comparison.md docs/history/evaluation.md docs/packed-fields.md docs/unsigned-magnitude.md docs/packed-consolidation-0611.md
 
 .PHONY: check-boundary

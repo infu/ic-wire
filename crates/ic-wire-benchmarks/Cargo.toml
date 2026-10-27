@@ -19,6 +19,10 @@ ic = ["ic-platform/pocket-ic"]
 toko = []
 # Focused ordinary-list/output-writer qualification, not a production mode.
 hotspots = []
+# Caller-storage qualification only. Baseline omits APIs absent before #29.
+caller-output = []
+caller-output-baseline = ["caller-output"]
+caller-generation = ["ic-wire/typescript"]
 # Benchmark cohort selection, never a production codec mode.
 packed-i16 = []
 packed-i16-baseline = ["packed-i16"]
@@ -33,6 +37,7 @@ derive-scale-1 = ["derive-scale"]
 derive-scale-10 = ["derive-scale"]
 
 [dev-dependencies]
+clap.workspace = true
 ic-platform = { workspace = true, features = ["candid", "ic0"] }
 ic-wire.workspace = true
 num-bigint.workspace = true
@@ -71,6 +76,22 @@ crate-type = ["cdylib"]
 name = "admission-instructions"
 path = "examples/admission_instructions/mod.rs"
 required-features = ["ic"]
+
+[[example]]
+name = "caller-output-wasm"
+path = "examples/caller_output/mod.rs"
+crate-type = ["cdylib"]
+required-features = ["caller-output"]
+
+[[example]]
+name = "caller-output-instructions"
+path = "examples/caller_output_instructions/mod.rs"
+required-features = ["caller-output", "ic"]
+
+[[example]]
+name = "caller-generation"
+path = "examples/caller_generation/mod.rs"
+required-features = ["caller-generation"]
 
 # IC exports require unsafe attributes, but the fixture uses only safe system calls.
 # Keep denial everywhere except the explicitly exported entrypoint.

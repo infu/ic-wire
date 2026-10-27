@@ -3,7 +3,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 cd "$root"
 [[ "$(node --version)" == "v$(cat examples/browser/.nvmrc)" ]] || { echo 'Select the Node version in examples/browser/.nvmrc' >&2; exit 1; }
-cargo test --locked -p ic-wire --features typescript --test runtime --test borrowed
+cargo test --locked -p ic-wire --features typescript --test runtime --test borrowed --test native
 cargo clippy --locked -p ic-wire --features typescript --all-targets -- -D warnings
 RUSTUP_TOOLCHAIN=1.91.0 cargo check --locked -p ic-wire --features typescript --lib
 out="$root/target/typescript-conformance"

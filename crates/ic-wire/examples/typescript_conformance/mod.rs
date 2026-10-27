@@ -2,6 +2,7 @@
 mod admission;
 mod large_bytes;
 mod native_schema;
+mod payload;
 use ic_wire::{Bytes, Limits, List, Text, Wire};
 use std::{
     fmt::Write as _,
@@ -564,5 +565,6 @@ assert.throws(() => magnitudeToBigInt(new Uint8Array(65).fill(1)));
     f.checks.push_str(&native_schema::generate(&f.directory));
     f.checks.push_str(&admission::generate(&f.directory));
     f.checks.push_str(include_str!("writer.mjs"));
+    f.checks.push_str(&payload::generate(&f.directory));
     fs::write(f.directory.join("checks.mjs"), f.checks).unwrap();
 }

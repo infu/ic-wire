@@ -112,6 +112,132 @@ pub fn encode_into<T: Serialize + ?Sized>(
 ) -> Result<(), Error> {
     encode_prefixed_into(value, limits, &[], bytes)
 }
+
+/// Encode a payload into caller-owned storage without allocating an output buffer.
+///
+/// The returned slice borrows only `storage`, not `value`. Admission and sizing
+/// retain the same two-pass traversal and conservative allocation accounting as
+/// [`encode`]; custom serializers can still allocate independently.
+/// Insufficient storage returns [`Error::Limit`] before modifying it. That error
+/// also covers ordinary resource admission, so it does not by itself establish
+/// that retrying with a larger buffer will succeed.
+/// Serialization failure can leave partial bytes in storage; publish only the
+/// slice returned by a successful call. Bytes outside that slice are not output.
+pub fn encode_to_slice<'out, T: Serialize + ?Sized>(
+    value: &T,
+    limits: Limits,
+    storage: &'out mut [u8],
+) -> Result<&'out [u8], Error> {
+    encode_prefixed_to_slice(value, limits, &[], storage)
+}
+
+/// Encode a payload and lend complete bytes to a synchronous consumer.
+///
+/// Sizing selects caller scratch or an owned buffer once, before serialization;
+/// large values do not pass through a per-byte inline/spill adapter. Both paths
+/// keep [`encode`]'s two-pass admission. `value` is dropped before `consume`,
+/// which is never invoked after an encoding failure. Scratch contents after an
+/// error are unspecified. Custom serializers retain their ordinary trust boundary.
+///
+/// The callback's bytes cannot escape, including in a returned future:
+/// ```compile_fail
+/// let limits = ic_wire::Limits { bytes: 128, allocation: 1024, nodes: 64, depth: 8 };
+/// let mut scratch = [0; 128];
+/// let borrowed = ic_wire::native::with_encoded(7u64, limits, &mut scratch, |bytes| bytes);
+/// ```
+pub fn with_encoded<T: Serialize, R>(
+    value: T,
+    limits: Limits,
+    scratch: &mut [u8],
+    consume: impl FnOnce(&[u8]) -> R,
+) -> Result<R, Error> {
+    let size = encoded_len(&value, limits)?;
+    let budget = Budget::new(limits);
+    if let Some(storage) = scratch.get_mut(..size) {
+        let bytes = postcard::serialize_with_flavor(
+            &encode::Bounded {
+                value: &value,
+                budget: &budget,
+                depth: 1,
+            },
+            postcard::ser_flavors::Slice::new(storage),
+        )
+        .map_err(|_| budget.error())?;
+        drop(value);
+        Ok(consume(bytes))
+    } else {
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(size)
+            .map_err(|_| Error::Allocation)?;
+        let bytes = postcard::serialize_with_flavor(
+            &encode::Bounded {
+                value: &value,
+                budget: &budget,
+                depth: 1,
+            },
+            contract::Output { bytes, limit: size },
+        )
+        .map_err(|_| budget.error())?;
+        drop(value);
+        Ok(consume(&bytes))
+    }
+}
+
+/// Encode a request into caller storage, including its 11-byte identity envelope.
+///
+/// Follows [`encode_to_slice`] admission, ownership and failure rules.
+/// `limits.bytes` includes the header.
+pub fn encode_request_to_slice<'out, T: Serialize + ?Sized>(
+    id: u64,
+    value: &T,
+    limits: Limits,
+    storage: &'out mut [u8],
+) -> Result<&'out [u8], Error> {
+    encode_prefixed_to_slice(value, limits, &contract::header(id, 0), storage)
+}
+
+/// Encode a response into caller storage, including its 11-byte identity envelope.
+///
+/// Follows [`encode_to_slice`] admission, ownership and failure rules.
+/// `limits.bytes` includes the header.
+pub fn encode_response_to_slice<'out, T: Serialize + ?Sized>(
+    id: u64,
+    value: &T,
+    limits: Limits,
+    storage: &'out mut [u8],
+) -> Result<&'out [u8], Error> {
+    encode_prefixed_to_slice(value, limits, &contract::header(id, 1), storage)
+}
+
+fn encode_prefixed_to_slice<'out, T: Serialize + ?Sized>(
+    value: &T,
+    limits: Limits,
+    prefix: &[u8],
+    storage: &'out mut [u8],
+) -> Result<&'out [u8], Error> {
+    let size = encoded_len(value, payload_limits(limits, prefix.len())?)?;
+    let total = size.checked_add(prefix.len()).ok_or(Error::Limit)?;
+    let output = storage.get_mut(..total).ok_or(Error::Limit)?;
+    let (header, payload) = output.split_at_mut(prefix.len());
+    header.copy_from_slice(prefix);
+    let budget = Budget::new(limits);
+    // This adds a storage destination, not an encoding or admission rule. Limit
+    // the second pass to its admitted size even when the caller offers more:
+    // a changing/custom Serialize implementation must not bypass preflight.
+    let written = postcard::serialize_with_flavor(
+        &encode::Bounded {
+            value,
+            budget: &budget,
+            depth: 1,
+        },
+        postcard::ser_flavors::Slice::new(payload),
+    )
+    .map_err(|_| budget.error())?
+    .len();
+    Ok(&output[..prefix.len() + written])
+}
+
 fn encode_prefixed_into<T: Serialize + ?Sized>(
     value: &T,
     limits: Limits,

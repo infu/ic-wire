@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.19] - Unreleased
+
+### 📝 Summary
+
+- Add caller-storage and scoped payload encoding, plus TypeScript payload codecs
+  and host generation matching Rust's existing unframed API. Preserve existing
+  framed bytes, resource admission and error variants; no consumer migration is
+  required for existing APIs.
+
+### ✨ Added
+
+- Encode into caller slices or select scratch/owned output once before encoding
+  with `native::with_encoded`. Document complete-success publication, input drop,
+  short-buffer errors and the unchanged two-pass admission contract.
+- Generate and execute payload-only request/reply clients without a method ID,
+  including zero-byte unit, standalone schema validation and named scalar checks.
+  Document tested consumer scalar wrappers and JavaScript delivery in
+  [SDK integration](docs/sdk-integration.md), addressing
+  [#29 — Add payload-only client codecs and bounded caller storage for SDK integration](https://github.com/dragginzgame/ic-wire/issues/29).
+
 ## [0.7.18] - 2026-10-26
 
 ### 📝 Summary

@@ -249,6 +249,27 @@ measurement of this operation's allocation allowance; shrink or drop it accordin
 to the caller's memory policy. Keep separate immutable bytes for retries before
 reusing a buffer.
 
+`encode_to_slice`, `encode_request_to_slice` and `encode_response_to_slice` encode
+into caller-owned storage and return its exact successful byte slice. Short
+storage returns `Error::Limit` before writing; later serialization failures may
+leave partial bytes. `with_encoded(value, limits, scratch, consume)` chooses
+scratch or an owned output buffer once after sizing, drops the input, then lends
+complete bytes synchronously to the callback. Both retain two-pass admission and
+conservative allocation accounting; custom serializers remain trusted. Publish
+only successful output and keep retry bytes separately owned.
+
+```rust
+use ic_wire::{Limits, native};
+let limits = Limits { bytes: 4096, allocation: 65536, nodes: 4096, depth: 32 };
+let mut scratch = [0; 128];
+let length = native::with_encoded(7u64, limits, &mut scratch, |bytes| {
+    assert_eq!(bytes, [7]);
+    bytes.len()
+})?;
+assert_eq!(length, 1);
+# Ok::<(), ic_wire::Error>(())
+```
+
 ```rust
 use ic_wire::{Limits, native};
 let limits = Limits { bytes: 4096, allocation: 65536, nodes: 4096, depth: 32 };
@@ -319,6 +340,17 @@ deduplication require consumer end-to-end tests. Wire's codec tests cannot estab
 those transport and execution guarantees.
 
 ## Concrete native TypeScript metadata
+
+Payload-only clients use `createPayloadCodec(schema, {bytes, nodes, depth}, types,
+checks)` from the same runtime. Encoding/decoding starts at byte zero, permits a
+zero-byte unit payload, and retains full-consumption and traversal checks. The
+existing `createCodec` keeps its envelope, identity and direction contract.
+`typescript::generate_payload_registry` emits the same typed method objects as
+`generate_registry` without requiring IDs; `payload_method_limits` projects its
+policies and `validate_payload_schema` checks standalone payloads/constructors.
+The selected consumer runtime module exports `createPayloadCodec` and can supply
+named scalar checks. These additions match Rust's existing payload APIs; no new
+encoding or automatic frame detection is introduced.
 
 `typescript::RUNTIME` accepts trusted concrete metadata through
 `createCodec(method, types, checks)`, including named recursive `ref` nodes,

@@ -1,0 +1,46 @@
+{
+  "date_utc": "2026-10-27",
+  "baseline_commit": "c748379325266d7fa614fefee9d745eb4a88acca",
+  "candidate_identity": "PR source; exact compiled inputs in candidate-build-inputs.sha256",
+  "baseline_fixture": "same new unpublished Cargo manifest/lock and caller fixtures copied onto the identified old library",
+  "compiler": "rustc 1.99.1 58cf8f9c35b355199727627d07ae34a4e2846d67",
+  "target": "wasm32-unknown-unknown",
+  "profiles": [
+    "evaluation (opt-z)",
+    "benchmark-speed (opt-3)"
+  ],
+  "lto": true,
+  "codegen_units": 1,
+  "panic": "abort",
+  "strip": "symbols",
+  "extra_rustflags": null,
+  "lock_sha256": "3f659a3e3104aaa4b3d72a8484572f58ac553c5b3e3f82ef103c75cdb53bb9bb",
+  "pocket_ic_version": "16.1.0",
+  "pocket_ic_sha256": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6",
+  "ic_platform": "0.6.19",
+  "ic_testkit": "0.68.8",
+  "postcard": "1.1.3",
+  "serde": "1.0.229",
+  "generation": {
+    "profile": "benchmark-speed",
+    "target": "x86_64-unknown-linux-gnu",
+    "blocks": 8,
+    "alternating_variant_order": true,
+    "samples_per_block": 4,
+    "generations_per_sample": 128,
+    "warmup_generations": 4,
+    "metadata_prepared_before_timing": true,
+    "output_disposal_included": true,
+    "executable_sha256": {
+      "baseline": "80f58e3f7210b054d45a932f283771cc50e41a651998df62729cf08c1706a7fc",
+      "candidate": "b6ebec8a7ca9741ef0ae41324bba4f98bc7cb127dafcea81bec5760ab25aee64"
+    },
+    "fixture_sha256": "467f03c3c15ab8274e9aabc9add7035e0cd0fc90d506b9cecc34b11a9e600479"
+  },
+  "consumer_context_only": {
+    "newstack_at_task_start": "ff2d9adeeaa2f959d32f5d8ba6079a3f8f7765f3",
+    "sdk_pin_at_task_start": "931f8c8087fa15cfeab56eb2f3979f7010e3f06d",
+    "scope": "Neither is a build dependency or a measured consumer. No SDK runtime/Heavy16 claim."
+  },
+  "binary_source_limit": "Measured PocketIC executable hash; no complete matching IC source closure is asserted."
+}

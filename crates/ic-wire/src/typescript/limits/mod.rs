@@ -11,15 +11,27 @@ use serde_json::{Value, json};
 /// JavaScript heap. Equal numbers do not imply equal traversal charges; qualify
 /// both runtimes against the consumer corpus. Bytes include the envelope.
 pub fn method_limits(request: Limits, response: Limits) -> Result<Value, GenerationError> {
+    project(request, response, true)
+}
+
+/// Project independent allowances for payload-only generated method codecs.
+///
+/// This matches [`method_limits`] except that byte allowances exclude framing
+/// and may be zero for unit payloads. Allocation is not a JavaScript heap bound.
+pub fn payload_method_limits(request: Limits, response: Limits) -> Result<Value, GenerationError> {
+    project(request, response, false)
+}
+
+fn project(request: Limits, response: Limits, framed: bool) -> Result<Value, GenerationError> {
     let value = json!({
         "requestBytes":request.bytes, "requestNodes":request.nodes, "requestDepth":request.depth,
         "responseBytes":response.bytes, "responseNodes":response.nodes, "responseDepth":response.depth
     });
-    validate(&value)?;
+    validate(&value, framed)?;
     Ok(value)
 }
 
-pub(super) fn validate(method: &Value) -> Result<(), GenerationError> {
+pub(super) fn validate(method: &Value, framed: bool) -> Result<(), GenerationError> {
     for key in [
         "requestBytes",
         "responseBytes",
@@ -33,7 +45,11 @@ pub(super) fn validate(method: &Value) -> Result<(), GenerationError> {
             return Err(GenerationError::Complexity);
         }
         let minimum = if key.ends_with("Bytes") {
-            crate::contract::HEADER as u64
+            if framed {
+                crate::contract::HEADER as u64
+            } else {
+                0
+            }
         } else {
             1
         };

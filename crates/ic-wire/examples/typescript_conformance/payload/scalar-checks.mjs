@@ -1,0 +1,10 @@
+assert.throws(()=>scalar.encode(-1n), WireError);
+assert.throws(()=>scalar.encode(1n<<512n), WireError);
+assert.throws(()=>scalar.decode(new Uint8Array([1,0])), WireError);
+assert.throws(()=>scalar.decode(new Uint8Array([2,0,1])), WireError);
+const checkedPayload = (await import('./compiled/payload-checked.js')).checked;
+assert.deepEqual([...checkedPayload.encodeRequest(new Uint8Array([1]))], [1,1]);
+assert.deepEqual(checkedPayload.decodeResponse(new Uint8Array([1,1])), new Uint8Array([1]));
+assert.throws(()=>checkedPayload.encodeRequest(new Uint8Array([0])),WireError);
+assert.throws(()=>checkedPayload.decodeResponse(new Uint8Array([1,0])),WireError);
+console.log('Consumer scalar wrapper: exact big-endian magnitude bytes, bigint projection and named checks passed');

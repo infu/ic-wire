@@ -3,9 +3,9 @@ mod bulk_lint;
 pub use bulk_lint::{BulkLintReport, BulkWarning, lint_bulk_fields, lint_bulk_roots};
 mod limits;
 mod metadata;
-pub use limits::method_limits;
+pub use limits::{method_limits, payload_method_limits};
 mod native_schema;
-pub use metadata::generate_registry;
+pub use metadata::{generate_payload_registry, generate_registry, validate_payload_schema};
 #[doc(hidden)]
 pub use native_schema::SerdeBytesField;
 pub use native_schema::{SchemaContext, SchemaRegistry, Wire, native_schema};

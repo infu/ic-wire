@@ -1,0 +1,19 @@
+{
+  "artifacts": [
+    {
+      "label": "baseline",
+      "sha256": "652dab945497591686bd9691afb532b666fdd4a084823b5d418246dec9f81437",
+      "uncompressed_wasm_bytes": 42090
+    },
+    {
+      "label": "candidate",
+      "sha256": "3d37ff67a46f4ec0ee2db95458d4cee71402297523fcabc5ed913239c3d3880a",
+      "uncompressed_wasm_bytes": 58489
+    }
+  ],
+  "fixture_sha256": "a9411fe47767e89195eb760cedb8ff2cb60b33168bd6b6fe73e7a087d5dbaeba",
+  "lock_sha256": "3f659a3e3104aaa4b3d72a8484572f58ac553c5b3e3f82ef103c75cdb53bb9bb",
+  "samples": 8,
+  "scope": "Counter0 warm/amortized encoding, including output disposal and loop overhead. No subtraction. Preparation and IC transport excluded; updates avoid query-result caching. Wasm capacity is not live heap/RSS.",
+  "server_sha256": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6"
+}

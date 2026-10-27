@@ -25,6 +25,8 @@ or the `serde_bytes` adapter, and large homogeneous integer/hash arrays to
 varints matter. These field types share the same Serde/Postcard codec; choosing
 packed fields is explicit and requires coordinated consumers for existing layouts.
 See the [field selection and adoption guide](docs/packed-fields.md).
+For payload-only clients, caller-owned output and consumer scalar wrappers, see
+[SDK integration without a codec fork](docs/sdk-integration.md).
 
 ## Development
 

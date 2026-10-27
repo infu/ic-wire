@@ -330,9 +330,75 @@ pub fn generate_registry(
     acknowledgements: &BTreeMap<String, String>,
     diagnostics: impl FnOnce(super::BulkLintReport),
 ) -> Result<String, GenerationError> {
+    generate(
+        types,
+        methods,
+        runtime_module,
+        acknowledgements,
+        diagnostics,
+        true,
+    )
+}
+
+/// Generate payload-only method codecs matching `native::encode`/`decode`.
+///
+/// Takes the same registry, diagnostics and method metadata as
+/// [`generate_registry`], but requires no `id`. Request/response byte limits
+/// exclude headers and may be zero for unit. The consumer's transport selects
+/// the method and owns authentication. Existing framed codecs are unchanged.
+/// `runtime_module` must export `createPayloadCodec(schema, limits, types)`;
+/// a consumer wrapper may supply its own scalar checks. Standalone schemas can
+/// use that same runtime factory and [`validate_payload_schema`].
+pub fn generate_payload_registry(
+    types: &BTreeMap<String, Value>,
+    methods: &[Value],
+    runtime_module: &str,
+    acknowledgements: &BTreeMap<String, String>,
+    diagnostics: impl FnOnce(super::BulkLintReport),
+) -> Result<String, GenerationError> {
+    generate(
+        types,
+        methods,
+        runtime_module,
+        acknowledgements,
+        diagnostics,
+        false,
+    )
+}
+
+/// Validate a standalone payload/constructor schema and its complete registry.
+///
+/// Performs the same shape, reference, alias-cycle and complexity checks as
+/// generation without producing source or traversing any application values.
+pub fn validate_payload_schema(
+    types: &BTreeMap<String, Value>,
+    schema: &Value,
+) -> Result<(), GenerationError> {
     let mut remaining = 65536;
+    for (name, node) in types {
+        identifier(name)?;
+        ty(node, types, 0, &mut remaining)?;
+    }
+    validate_aliases(types)?;
+    ty(schema, types, 0, &mut remaining).map(|_| ())
+}
+
+fn generate(
+    types: &BTreeMap<String, Value>,
+    methods: &[Value],
+    runtime_module: &str,
+    acknowledgements: &BTreeMap<String, String>,
+    diagnostics: impl FnOnce(super::BulkLintReport),
+    framed: bool,
+) -> Result<String, GenerationError> {
+    let mut remaining = 65536;
+    let factory = if framed {
+        "createCodec"
+    } else {
+        "createPayloadCodec"
+    };
     let mut source = format!(
-        "// Generated from IC Wire metadata; edit the source contracts.\nimport {{ createCodec as $createCodec }} from {};\n",
+        "// Generated from IC Wire metadata; edit the source contracts.\nimport {{ {factory} as $createCodec }} from {};\n",
         json!(runtime_module)
     );
     for (name, node) in types {
@@ -356,9 +422,6 @@ pub fn generate_registry(
     for method in methods {
         let name = text(method, "name")?;
         identifier(name)?;
-        let id = text(method, "id")?
-            .parse::<u64>()
-            .map_err(|_| GenerationError::Schema)?;
         // Previously distinct names could reuse an identity (including "7"/"07"),
         // letting the same frame acquire incompatible payload meanings. Reject
         // numeric collisions within this registry, across query/update modes.
@@ -367,13 +430,29 @@ pub fn generate_registry(
         if types.contains_key(name)
             || !names.insert(name)
             || !matches!(text(method, "mode")?, "query" | "update")
-            || !ids.insert(id)
         {
             return Err(GenerationError::Schema);
         }
-        super::limits::validate(method)?;
+        if framed {
+            let id = text(method, "id")?
+                .parse::<u64>()
+                .map_err(|_| GenerationError::Schema)?;
+            if !ids.insert(id) {
+                return Err(GenerationError::Schema);
+            }
+        }
+        super::limits::validate(method, framed)?;
         let request = ty(&method["request"], types, 0, &mut remaining)?;
         let response = ty(&method["response"], types, 0, &mut remaining)?;
+        if !framed {
+            // Same Postcard payload and schema traversal as Rust's unframed
+            // native API. No header is assembled/stripped or detected at runtime.
+            source.push_str(&format!(
+                "export const {name} = (() => {{ const meta = {method}; const request = $createCodec(meta.request, {{ bytes: meta.requestBytes, nodes: meta.requestNodes, depth: meta.requestDepth }}, $types); const response = $createCodec(meta.response, {{ bytes: meta.responseBytes, nodes: meta.responseNodes, depth: meta.responseDepth }}, $types); return {{ methodName: {name_json}, mode: {mode} as const, encodeRequest: (value: {request}): globalThis.Uint8Array => request.encode(value), decodeRequest: (bytes: globalThis.Uint8Array): {request} => request.decode(bytes) as {request}, encodeResponse: (value: {response}): globalThis.Uint8Array => response.encode(value), decodeResponse: (bytes: globalThis.Uint8Array): {response} => response.decode(bytes) as {response} }}; }})();\n",
+                name_json = json!(name), mode = method["mode"],
+            ));
+            continue;
+        }
         source.push_str(&format!(
             "export const {name} = (() => {{ const codec = $createCodec({method}, $types); return {{ methodName: {name_json}, mode: {mode} as const, encodeRequest: (value: {request}): globalThis.Uint8Array => codec.encodeRequest(value), decodeRequest: (bytes: globalThis.Uint8Array): {request} => codec.decodeRequest(bytes) as {request}, encodeResponse: (value: {response}): globalThis.Uint8Array => codec.encodeResponse(value), decodeResponse: (bytes: globalThis.Uint8Array): {response} => codec.decodeResponse(bytes) as {response} }}; }})();\n",
             name_json = json!(name), mode = method["mode"],

@@ -24,6 +24,8 @@ export type Schema = ( { k: 'unit' | 'bool' }
 type Method = { id: string; request: Schema; response: Schema; requestBytes: number; responseBytes: number; requestNodes: number; responseNodes: number; requestDepth: number; responseDepth: number };
 type Types = Readonly<Record<string, Schema>>;
 type Checks = Readonly<Record<string, (value: unknown) => void>>;
+// Allocation is deliberately absent: traversal budgets do not bound JS heap.
+export type PayloadLimits = { bytes: number; nodes: number; depth: number };
 const fail = (code: WireError['code']): never => { throw new WireError(code); };
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const utf16 = new TextEncoder();
@@ -81,15 +83,20 @@ class Writer {
   bytes: Uint8Array;
   private view: DataView;
   offset = 11;
-  constructor(readonly limit: number, id: bigint, direction: number) {
+  constructor(readonly limit: number, id: bigint | null, direction: number) {
     // Previously every encode allocated the entire byte allowance. Grow one
     // private buffer instead; the ceiling, bytes and callback visits are unchanged.
     // Consumers can regenerate clients without changing contracts or retry bytes.
     this.bytes = new Uint8Array(Math.min(limit, 64));
-    this.bytes.set([73, 87]);
     this.view = new DataView(this.bytes.buffer);
-    this.view.setBigUint64(2, id, true);
-    this.bytes[10] = direction;
+    // Payload-only encoding shares all traversal and growth rules. Only these
+    // explicit constructors select framing; decoding never sniffs for IW.
+    if (id === null) this.offset = 0;
+    else {
+      this.bytes.set([73, 87]);
+      this.view.setBigUint64(2, id, true);
+      this.bytes[10] = direction;
+    }
   }
   private grow(required: number) {
     if (required > this.limit) fail('limit');
@@ -118,9 +125,8 @@ class Writer {
   }
 }
 class Reader {
-  offset = 11;
   readonly view: DataView;
-  constructor(readonly bytes: Uint8Array) {
+  constructor(readonly bytes: Uint8Array, public offset = 11) {
     this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   }
   float(bits: number): number {
@@ -340,6 +346,32 @@ function readValue(s: Schema, input: Reader, budget: Budget, depth: number, type
       return { tag: variant.name, value: child(variant.value) };
     }
   }
+}
+// Exact native::encode/decode payloads, without a method/direction envelope.
+// Metadata is consumer-owned and trusted, just as in createCodec. A successful
+// result owns its bytes; these helpers introduce no SDK or transport policy.
+export function createPayloadCodec(schema: unknown, limits: PayloadLimits, registry: unknown = {}, checks: Checks = {}) {
+  const type = schema as Schema, types = registry as Types;
+  for (const [value, minimum] of [[limits.bytes, 0], [limits.nodes, 1], [limits.depth, 1]] as const) {
+    if (!Number.isSafeInteger(value) || value < minimum) fail('value');
+  }
+  return {
+    encode(value: unknown): Uint8Array {
+      const out = new Writer(limits.bytes, null, 0);
+      write(type, value, out, new Budget(limits.nodes, limits.depth), 1, types, checks);
+      return out.offset === out.bytes.length ? out.bytes : out.bytes.slice(0, out.offset);
+    },
+    decode(bytes: Uint8Array): unknown {
+      if (!(bytes instanceof Uint8Array)) return fail('value');
+      if (bytes.length > limits.bytes) return fail('limit');
+      try {
+        const input = new Reader(bytes, 0);
+        const value = read(type, input, new Budget(limits.nodes, limits.depth), 1, types, checks);
+        if (input.offset !== bytes.length) return fail('malformed');
+        return value;
+      } catch (error) { if (error instanceof WireError) throw error; return fail('malformed'); }
+    },
+  };
 }
 // Accept only generated trusted metadata. No SDK/auth/transport policy lives here.
 export function createCodec(metadata: unknown, registry: unknown = {}, checks: Checks = {}) {

@@ -983,6 +983,7 @@ dependencies = [
 name = "ic-wire-benchmarks"
 version = "0.7.18"
 dependencies = [
+ "clap",
  "dhat",
  "ic-platform",
  "ic-testkit",
