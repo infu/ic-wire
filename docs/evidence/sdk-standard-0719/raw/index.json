@@ -1,0 +1,266 @@
+[
+  {
+    "variant": "baseline",
+    "cohort": "standard",
+    "file": "raw/baseline-standard.json.gz",
+    "decompressed_sha256": "4ae31808e568a7d8c5a181303d392bee3a3646fb3710792d1b4613b1c009cfd9"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "standard",
+    "file": "raw/candidate-standard.json.gz",
+    "decompressed_sha256": "92f46c68dfefe14ec0b91f28b8aef123b76bec8ef048d676325e9299e8d6cb84"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "toko",
+    "file": "raw/baseline-toko.json.gz",
+    "decompressed_sha256": "ecd5656f63326c025dd1814201332e6b6649943bad4b7f7025fe1e73f39c61b8"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "toko",
+    "file": "raw/candidate-toko.json.gz",
+    "decompressed_sha256": "f582e78bda27c00ad629adc1fc40972fa362771f53f6c80951ffafc64236fa2d"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "derive-1",
+    "file": "raw/baseline-derive-1.json.gz",
+    "decompressed_sha256": "5579b4cb55f2c9bcae04b1893ceb8b98d3b955a0b3c8c500667ef6f9c07b2aa3"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "derive-1",
+    "file": "raw/candidate-derive-1.json.gz",
+    "decompressed_sha256": "3b22f3bac0f5ae49d49c9f0a8a590e9e81f52df4777db1b71122cad0de6faa02"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "derive-10",
+    "file": "raw/baseline-derive-10.json.gz",
+    "decompressed_sha256": "247085b3914cc9985c3e2531a325591d93d07f7e506eac115c85da3fe2f1b03d"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "derive-10",
+    "file": "raw/candidate-derive-10.json.gz",
+    "decompressed_sha256": "57acbbc795e3be74254467701ee170aedaa2ea01cc61a083e600d567de2b4dfd"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "derive-100",
+    "file": "raw/baseline-derive-100.json.gz",
+    "decompressed_sha256": "8273760de7902126cfd563806285d81941bad75d1b33dfc137daebcbcd092fd5"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "derive-100",
+    "file": "raw/candidate-derive-100.json.gz",
+    "decompressed_sha256": "baef7cadf48c1f4d94f9c50f72dc89aa23acc9b8fc1ca6a05253d02c7c80a658"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "packed-i16",
+    "file": "raw/baseline-packed-i16.json.gz",
+    "decompressed_sha256": "8d37fc35c0f6666d502cf7bb269e88a10d31d07875b20de43c63f567ee75afdb"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "packed-i16",
+    "file": "raw/candidate-packed-i16.json.gz",
+    "decompressed_sha256": "65f2e7df8dc1709951d5c74a303c7f3dc1b848148fd4220383f2509992d5ead0"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "packed-control",
+    "file": "raw/baseline-packed-control.json.gz",
+    "decompressed_sha256": "7f2434ae3867e4e5a3766fe183ed18d9eb813eb72d5280525bfc208b0f7cad23"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "packed-control",
+    "file": "raw/candidate-packed-control.json.gz",
+    "decompressed_sha256": "a310931cb6c60b00e92626d89e0ad11a6507a8fb6ca04b5676829f7d7262d59f"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "packed-shared-1",
+    "file": "raw/baseline-packed-shared-1.json.gz",
+    "decompressed_sha256": "526f2c1b4ef932979f035be83dd4dabd9875e6239485d062493f00f208f21f8e"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "packed-shared-1",
+    "file": "raw/candidate-packed-shared-1.json.gz",
+    "decompressed_sha256": "59e054c4ad0a504fb115a39e058943cc2c35e1ca36cdd12ea632ff9340c05e53"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "packed-shared-10",
+    "file": "raw/baseline-packed-shared-10.json.gz",
+    "decompressed_sha256": "3493c053b73df909f760af16bf0d2291a3afb174cfa2f7e3dfc01123bd783d69"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "packed-shared-10",
+    "file": "raw/candidate-packed-shared-10.json.gz",
+    "decompressed_sha256": "d884141951eaa3bdffabd5b6d1d5e9a07fc8b35caac902c93a08f73432a383b0"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "packed-shared-100",
+    "file": "raw/baseline-packed-shared-100.json.gz",
+    "decompressed_sha256": "46246f46e095f383cbaf20d2cf3bebf5600d71761de1e37f4d2cb942a86a29c8"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "packed-shared-100",
+    "file": "raw/candidate-packed-shared-100.json.gz",
+    "decompressed_sha256": "ef032d3d8658e9e0957dad368f4c94c7ef5567f1516558981fbc387d2b81bc34"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "packed-varied-1",
+    "file": "raw/baseline-packed-varied-1.json.gz",
+    "decompressed_sha256": "a84ddfd44d182dca19a8eee8d587b87492abaa9f7c24c962cd5a294f2a97bbf7"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "packed-varied-1",
+    "file": "raw/candidate-packed-varied-1.json.gz",
+    "decompressed_sha256": "b7dc07056439e1388b8c7ab8066204006ac6a5205d58f730615d50b43f329e96"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "packed-varied-10",
+    "file": "raw/baseline-packed-varied-10.json.gz",
+    "decompressed_sha256": "63d56d4af8cc36fee568e13d5588e2a52775ce1262c39ecc8a5a40a0a573a7c9"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "packed-varied-10",
+    "file": "raw/candidate-packed-varied-10.json.gz",
+    "decompressed_sha256": "2232dea85a4b941dd9a23871637bd0476311e3cabc634bcbe1bfcaf6507ebb48"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "packed-varied-100",
+    "file": "raw/baseline-packed-varied-100.json.gz",
+    "decompressed_sha256": "a369c83a9a481cb04870811de6703d0ecb159aaf2c3d72c7b573750aab284d3a"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "packed-varied-100",
+    "file": "raw/candidate-packed-varied-100.json.gz",
+    "decompressed_sha256": "4fa89433eccd46bc9d4e1cb6f2c3095cdaf8a1d64c7a4931ee2f0f8ec844847e"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "bulk",
+    "file": "raw/baseline-bulk.json.gz",
+    "decompressed_sha256": "b33b8df449eabb1b180d85fd802093106f3f09fa7195fc610341ec8504e87d1c"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "bulk",
+    "file": "raw/candidate-bulk.json.gz",
+    "decompressed_sha256": "6091ce35d0ffe51ff76fa13257d4015fd3d2dcb87972af8956ed993faeecd5aa"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "bulk-control",
+    "file": "raw/baseline-bulk-control.json.gz",
+    "decompressed_sha256": "322b282ff3ef1f5e4af57133075b3b72e7e1265a9d570c153e0bce440cf05f69"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "bulk-control",
+    "file": "raw/candidate-bulk-control.json.gz",
+    "decompressed_sha256": "8056bc66e68f056f1b33d8c80ad916411c57f4426f5a4a6ed6ac1919343dc1de"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "bulk-1",
+    "file": "raw/baseline-bulk-1.json.gz",
+    "decompressed_sha256": "f1c541354c7e096f000859c56825061e855b163eaa3c038180b32bcd52cee380"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "bulk-1",
+    "file": "raw/candidate-bulk-1.json.gz",
+    "decompressed_sha256": "f8a5bcece375c4c672a5986eda5b95fd3157b8ef6af496fed2dddb3e0e4d8653"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "bulk-10",
+    "file": "raw/baseline-bulk-10.json.gz",
+    "decompressed_sha256": "ed6bedccf8e65b8f52bb717627aaf91c81994261bfc398a791bed952ee051905"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "bulk-10",
+    "file": "raw/candidate-bulk-10.json.gz",
+    "decompressed_sha256": "b6338c7a3b7d69ec66a7a3df86a92cfdce946e6bbed46be30b5265842714f66c"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "bulk-100",
+    "file": "raw/baseline-bulk-100.json.gz",
+    "decompressed_sha256": "8dae92fe8a9e8a3534a56c5ff99feda0d982bcd74be0a70e1b516745956994cf"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "bulk-100",
+    "file": "raw/candidate-bulk-100.json.gz",
+    "decompressed_sha256": "640689f09436b08b779b12828671919fb36b8feb0e7611e883affd7d486308c0"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "bulk-control-1",
+    "file": "raw/baseline-bulk-control-1.json.gz",
+    "decompressed_sha256": "d44c14051643a691f26f1eb1e99848adf4fbc3b81bb2f0feac47abb85cf3bef6"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "bulk-control-1",
+    "file": "raw/candidate-bulk-control-1.json.gz",
+    "decompressed_sha256": "229d739aea05709372ff1cb3c1092c10946c70d18333b85a72223aca252e7a25"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "bulk-control-10",
+    "file": "raw/baseline-bulk-control-10.json.gz",
+    "decompressed_sha256": "fa708dd2d3c7c01990419394cf51e8641f8e89050fefc7f9333079d4fe9187d4"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "bulk-control-10",
+    "file": "raw/candidate-bulk-control-10.json.gz",
+    "decompressed_sha256": "865b3ec167cf7b6af6e0c1f061cd3b86be88807194111eabae338de763821b1c"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "bulk-control-100",
+    "file": "raw/baseline-bulk-control-100.json.gz",
+    "decompressed_sha256": "b6f0cb4d05697da1f12d4fa88dfae62533a7b634a2542393b0c15e7e5b388d7e"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "bulk-control-100",
+    "file": "raw/candidate-bulk-control-100.json.gz",
+    "decompressed_sha256": "7438541cf11313885d9eccf1f2f1426adccd8ce43de6e3e31f20e077015c6268"
+  },
+  {
+    "variant": "baseline",
+    "cohort": "hotspots",
+    "file": "raw/baseline-hotspots.json.gz",
+    "decompressed_sha256": "2d09b28f4d361f3902ca4ee48a32afbc70082921c31c15c0c106930238c24072"
+  },
+  {
+    "variant": "candidate",
+    "cohort": "hotspots",
+    "file": "raw/candidate-hotspots.json.gz",
+    "decompressed_sha256": "569e13204f054678825fc4703d5f97f01b34de3fa01769950ff3734b246c6a5b"
+  }
+]

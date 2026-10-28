@@ -4,6 +4,14 @@ IC Wire has one production Serde/Postcard codec. Wire derives host layout
 metadata; Serde owns serialization. Packed<T> is an explicit field representation.
 Candid and PocketIC remain in the unpublished benchmark package.
 
+The pending SDK integration APIs have a separate
+[0.7.18 before/after qualification](evidence/sdk-standard-0719/README.md):
+the complete existing matrix and hotspots produce identical IC instructions,
+native operation allocation/heap metrics and all 88 Wasm artifact pairs. Native time
+varies. That study uses PocketIC 16.1.0 and retains its query-execution reuse
+limit; it does not replace the released historical comparisons below or qualify
+the added entry points' costs.
+
 The [0.7.10 full comparison](full-comparison-0710.md) is the current measured
 baseline. It covers all 21 maintained cohorts plus the focused hotspot corpus,
 with both optimization profiles, IC instructions, frame bytes, repeated native

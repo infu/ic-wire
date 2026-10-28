@@ -1,0 +1,58 @@
+{
+  "started": "2026-10-28T11:22:49.863Z",
+  "serverUrl": "http://127.0.0.1:40861",
+  "instanceId": 0,
+  "serverPid": 600513,
+  "binaryPath": "/tmp/ic-wire-standard-20261028-y6rOQ1/receipts/cache-probe/session/pocket-ic",
+  "originalBinaryPath": "/srv/shared/code/newstack/playground/private-frozen-binaries/sha256/6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6/pocket-ic",
+  "binaryStorage": {
+    "kind": "immutable-hardlink",
+    "frozenPath": "/srv/shared/code/newstack/playground/private-frozen-binaries/sha256/6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6/pocket-ic",
+    "sha256": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6",
+    "implementation": {
+      "path": "/srv/shared/code/newstack/tests/pocketic/binary.mjs",
+      "sha256": "a982e660602f3aa36095ef725cf1abc8d9ffbf8ebc2c55f2b6209fad7b63a4da"
+    }
+  },
+  "binarySha256": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6",
+  "binaryVersion": "pocket-ic-server 16.1.0",
+  "catalogSha256": "bc0db6fdf63d0a2e237f57f7505f845d83e23f203eaaffbcb498be3142b34229",
+  "temporaryDirectory": "/tmp/.pic-saDqPQ",
+  "settings": {
+    "application": [
+      {
+        "state": {
+          "type": "new"
+        },
+        "enableDeterministicTimeSlicing": true,
+        "enableBenchmarkingInstructionLimits": false
+      }
+    ],
+    "processingTimeoutMs": 900000
+  },
+  "node": "v24.11.1",
+  "picPackage": {
+    "path": "/srv/shared/code/newstack/tests/pocketic/node_modules/@dfinity/pic/package.json",
+    "version": "0.16.1",
+    "sha256": "70fe041b17675a04d51517332e7ce8bd15541ea7445225bc0be4c170b2cfc3e0"
+  },
+  "topology": [
+    {
+      "id": {
+        "__principal__": "33efl-jozzk-xzkcy-u2sk2-qqgeb-j4p4n-duv3f-qarrd-ds6oa-h6bd4-zqe"
+      },
+      "type": "Application",
+      "canisterRanges": [
+        {
+          "start": {
+            "__principal__": "xp3jw-ot777-77777-aaaaa-cai"
+          },
+          "end": {
+            "__principal__": "le5t5-53777-77777-p777q-cai"
+          }
+        }
+      ]
+    }
+  ],
+  "scope": "Owned server and instance. No viewer. Private pic-js HTTP methods replaced by single-submission polling."
+}

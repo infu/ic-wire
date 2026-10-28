@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+task_toolchain="${RUSTUP_TOOLCHAIN:-1.99.1}"
+task_compiler="$(/run/current-system/sw/bin/rustup which --toolchain "$task_toolchain" rustc)"
+task_toolbin="${task_compiler%/*}"
+if [[ "$task_toolchain" == 1.91.0 && -n "${CARGO_TARGET_DIR:-}" ]]; then
+  export CARGO_TARGET_DIR="${CARGO_TARGET_DIR}-msrv-1.91.0"
+fi
+export RUSTC="$task_compiler" RUSTDOC="$task_toolbin/rustdoc"
+export PATH="$task_toolbin:$PATH"
+exec "$task_toolbin/cargo" "$@"

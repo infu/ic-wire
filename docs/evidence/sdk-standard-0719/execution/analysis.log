@@ -1,0 +1,93 @@
+Validated standard: 7006 IC rows, all native/allocation/heap pairs
+Validated toko: 220 IC rows, all native/allocation/heap pairs
+Validated derive-1: 20 IC rows, all native/allocation/heap pairs
+Validated derive-10: 200 IC rows, all native/allocation/heap pairs
+Validated derive-100: 2000 IC rows, all native/allocation/heap pairs
+Validated packed-i16: 640 IC rows, all native/allocation/heap pairs
+Validated packed-control: 440 IC rows, all native/allocation/heap pairs
+Validated packed-shared-1: 20 IC rows, all native/allocation/heap pairs
+Validated packed-shared-10: 200 IC rows, all native/allocation/heap pairs
+Validated packed-shared-100: 2000 IC rows, all native/allocation/heap pairs
+Validated packed-varied-1: 20 IC rows, all native/allocation/heap pairs
+Validated packed-varied-10: 200 IC rows, all native/allocation/heap pairs
+Validated packed-varied-100: 2000 IC rows, all native/allocation/heap pairs
+Validated bulk: 2180 IC rows, all native/allocation/heap pairs
+Validated bulk-control: 2180 IC rows, all native/allocation/heap pairs
+Validated bulk-1: 20 IC rows, all native/allocation/heap pairs
+Validated bulk-10: 200 IC rows, all native/allocation/heap pairs
+Validated bulk-100: 2000 IC rows, all native/allocation/heap pairs
+Validated bulk-control-1: 20 IC rows, all native/allocation/heap pairs
+Validated bulk-control-10: 200 IC rows, all native/allocation/heap pairs
+Validated bulk-control-100: 2000 IC rows, all native/allocation/heap pairs
+Validated hotspots: 1904 IC rows, all native/allocation/heap pairs
+{
+  "cohorts": 22,
+  "cases": 1208,
+  "lock_sha256": "3f659a3e3104aaa4b3d72a8484572f58ac553c5b3e3f82ef103c75cdb53bb9bb",
+  "server_sha256": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6",
+  "source_identity": {
+    "variants": {
+      "baseline": {
+        "head": "c748379325266d7fa614fefee9d745eb4a88acca",
+        "source_manifest_sha256": "e292484c857717cfb12f38fa630b966966ccf98a6e3b2f2ae93123bfdb11b9c0",
+        "lock_sha256": "3f659a3e3104aaa4b3d72a8484572f58ac553c5b3e3f82ef103c75cdb53bb9bb"
+      },
+      "candidate": {
+        "head": "5d535c0a7e7514885c4f7253e229586b5f8b137f",
+        "source_manifest_sha256": "e6f7dc163643e97f8f23c8ff0933ebd832ee37aad87f684c206f8e5bf3185724",
+        "lock_sha256": "3f659a3e3104aaa4b3d72a8484572f58ac553c5b3e3f82ef103c75cdb53bb9bb"
+      }
+    },
+    "context_only": {
+      "factory": "d840e6bb69e055d9daef0d9da8d7d5dd310bfd7e",
+      "sdk": "b0fb29b2b99a7ea7b86408a11d6d219c7a5d45da"
+    },
+    "benchmark": "Existing suite/codec-instructions, full21cohorts plushotspots; original scripts and benchmark source unmodified. Baseline uses identical benchmark manifest/lock/new unused fixtures only.",
+    "target": "wasm32-unknown-unknown",
+    "runs": 2,
+    "samples": 11,
+    "batch_ms": 2,
+    "pocket_ic_sha256": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6"
+  },
+  "query_inputs_per_variant": 4962,
+  "returned_queries_per_variant": 14886,
+  "instructions": {
+    "rows": 25670,
+    "increases": 0,
+    "ties": 25670,
+    "decreases": 0
+  },
+  "wire_instructions": {
+    "rows": 13590,
+    "increases": 0,
+    "ties": 13590,
+    "decreases": 0
+  },
+  "candid_instructions": {
+    "rows": 12080,
+    "increases": 0,
+    "ties": 12080,
+    "decreases": 0
+  },
+  "allocation_metrics": {
+    "rows": 124248,
+    "increases": 0,
+    "ties": 124248,
+    "decreases": 0
+  },
+  "heap_metrics": {
+    "rows": 103540,
+    "increases": 0,
+    "ties": 103540,
+    "decreases": 0
+  },
+  "native_rows": 41416,
+  "artifacts": {
+    "total": 88,
+    "identical": 88,
+    "code_increases": 0,
+    "total_increases": 0
+  },
+  "wire_regressions": [],
+  "limitation": "The maintained driver makes three identical queries. The exact-binary unit probe observed one Wasm execution for those three returns, so three independent executions per case are not claimed. Native timings are serial on a shared host; do not treat row medians as endpoint latency."
+}

@@ -1,0 +1,9 @@
+{
+  "baseline": {"command": "make check-benchmarks", "exit_code": 0, "head": "c748379325266d7fa614fefee9d745eb4a88acca"},
+  "candidate": {"command": "make check-benchmarks", "exit_code": 0, "head": "5d535c0a7e7514885c4f7253e229586b5f8b137f"},
+  "toolchain_selection": "cargo shim selects actual physical rustc/rustdoc/Cargo for RUSTUP_TOOLCHAIN; minimum-toolchain Cargo targets are separate",
+  "development_compiler": "1.99.1",
+  "minimum_compiler": "1.91.0",
+  "target": "wasm32-unknown-unknown",
+  "logs": ["logs/check-benchmarks-baseline.log", "logs/check-benchmarks-candidate.log"]
+}

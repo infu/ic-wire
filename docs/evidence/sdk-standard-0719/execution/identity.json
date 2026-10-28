@@ -1,0 +1,24 @@
+{
+  "variants": {
+    "baseline": {
+      "head": "c748379325266d7fa614fefee9d745eb4a88acca",
+      "source_manifest_sha256": "e292484c857717cfb12f38fa630b966966ccf98a6e3b2f2ae93123bfdb11b9c0",
+      "lock_sha256": "3f659a3e3104aaa4b3d72a8484572f58ac553c5b3e3f82ef103c75cdb53bb9bb"
+    },
+    "candidate": {
+      "head": "5d535c0a7e7514885c4f7253e229586b5f8b137f",
+      "source_manifest_sha256": "e6f7dc163643e97f8f23c8ff0933ebd832ee37aad87f684c206f8e5bf3185724",
+      "lock_sha256": "3f659a3e3104aaa4b3d72a8484572f58ac553c5b3e3f82ef103c75cdb53bb9bb"
+    }
+  },
+  "context_only": {
+    "factory": "d840e6bb69e055d9daef0d9da8d7d5dd310bfd7e",
+    "sdk": "b0fb29b2b99a7ea7b86408a11d6d219c7a5d45da"
+  },
+  "benchmark": "Existing suite/codec-instructions, full21cohorts plushotspots; original scripts and benchmark source unmodified. Baseline uses identical benchmark manifest/lock/new unused fixtures only.",
+  "target": "wasm32-unknown-unknown",
+  "runs": 2,
+  "samples": 11,
+  "batch_ms": 2,
+  "pocket_ic_sha256": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6"
+}

@@ -1,0 +1,119 @@
+{
+  "label": "different-sender",
+  "profile": false,
+  "expectedCalls": 1,
+  "hostMillis": 10.122912000000724,
+  "rawSha256": "918fcdfb91b280173a59272ef2850bbc3997a8affc9cccdf8dc73631512ae0b4",
+  "gzipSha256": "ebd2c27717e2e3ae3c19fe411c38b13d33bc7b0cf733a02c10fd76280ac9c0ec",
+  "rawBytes": 527508,
+  "gzipBytes": 59899,
+  "beforeCycles": "99998570818000",
+  "afterCycles": "99998570818000",
+  "cycleDebit": "0",
+  "callError": null,
+  "summary": {
+    "formatVersion": 2,
+    "serverGeneration": "6af7a027-d199-4a4b-8b27-279f964f7033",
+    "serverBinaryHash": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6",
+    "traceGeneration": "2",
+    "truncated": false,
+    "droppedExecutions": "0",
+    "droppedInstructions": "0",
+    "droppedInstructionsIncomplete": false,
+    "recordedBytes": "11500",
+    "instructionTotalsComplete": true,
+    "memoryDetailsComplete": true,
+    "expectedCalls": 1,
+    "observedExecutions": 1,
+    "missingExecutionRows": 0,
+    "cacheOrNoWasmExecution": false,
+    "runtimeCostsTruncated": false,
+    "subnetRuntimeCostsTruncated": false,
+    "runtimeCostTotalsIncomplete": false,
+    "subnetRuntimeCostTotalsIncomplete": false,
+    "groups": {
+      "replicated": {
+        "executions": 0,
+        "instructions": "0",
+        "pageAccessInstructions": "0",
+        "accessedPages": "0",
+        "dirtyPages": "0",
+        "roundInstructions": "0",
+        "completed": 0,
+        "aborted": 0,
+        "committed": 0,
+        "discarded": 0,
+        "unavailableInstructionCounters": 0,
+        "unavailableMemoryDetails": 0
+      },
+      "query": {
+        "executions": 1,
+        "instructions": "283466",
+        "pageAccessInstructions": "240000",
+        "accessedPages": "3",
+        "dirtyPages": "0",
+        "roundInstructions": "283466",
+        "completed": 1,
+        "aborted": 0,
+        "committed": 0,
+        "discarded": 0,
+        "unavailableInstructionCounters": 0,
+        "unavailableMemoryDetails": 0
+      },
+      "inspection": {
+        "executions": 0,
+        "instructions": "0",
+        "pageAccessInstructions": "0",
+        "accessedPages": "0",
+        "dirtyPages": "0",
+        "roundInstructions": "0",
+        "completed": 0,
+        "aborted": 0,
+        "committed": 0,
+        "discarded": 0,
+        "unavailableInstructionCounters": 0,
+        "unavailableMemoryDetails": 0
+      }
+    },
+    "rows": [
+      {
+        "sequence": "1",
+        "api": "non replicated query",
+        "function": "canister_query benchmark",
+        "category": "query",
+        "instructions": "283466",
+        "pageAccessInstructions": "240000",
+        "accessedPages": "3",
+        "dirtyPages": "0",
+        "instructionsAvailable": true,
+        "memoryAvailable": true,
+        "detailTruncated": false,
+        "attempt": {
+          "attempt_id": "2",
+          "status": "completed",
+          "slice_count": "1",
+          "total_round_instructions": "283466",
+          "slices": [
+            {
+              "slice_index": "0",
+              "event": "finished",
+              "instructions": "283466",
+              "instruction_kind": "round_instructions"
+            }
+          ],
+          "slice_details_truncated": false,
+          "memory_details_available": true,
+          "instructions_available": true
+        },
+        "disposition": {
+          "logical_execution_id": "2",
+          "state": "not_applicable",
+          "reason": "Non-replicated query or inspection state is never committed to replicated canister state"
+        },
+        "moduleHash": "af70c31f2b7a943becb58b9038fd9593305c34884f89e9953f7def1970301e1a",
+        "moduleHashKind": "installed_uncompressed_sha256"
+      }
+    ]
+  },
+  "scope": "Complete guest execution charges including generated Wire wrappers, reply/cleanup and page charges. Scheduler round work and cycles remain separate."
+}

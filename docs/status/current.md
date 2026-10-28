@@ -34,10 +34,20 @@ checks pass. Payload tests include Rust/TypeScript byte equality, malformed and
 trailing input, admission, output ownership and consumer scalar wrappers. The
 existing framed conformance and simulated big-endian checks also pass.
 
+The [existing benchmark suite comparison](../evidence/sdk-standard-0719/README.md)
+now covers all 21 maintained cohorts plus hotspots: 1,208 overlapping case
+entries at opt-z and opt-3, wasm32 only. All 13,590 Wire IC rows and Candid
+controls match 0.7.18 exactly; native operation allocation/heap metrics are unchanged
+and all 88 Wasm artifact pairs are byte-identical. Native timings and observed
+slowdowns remain separate. Both variants pass `make check-benchmarks`.
+The original entry points exercised here do not qualify the new APIs' costs.
+The maintained IC driver repeats identical queries; the exact-binary probe
+observed one Wasm execution for three returns, not three independent executions.
+
 No release, publication, external deployment or consumer migration is part of
-this batch. Hosted CI, macOS, native codec timing and the full Candid comparison
-matrix were not run locally. Consumers still qualify endpoint admission,
-publication after mutation, lifecycle behavior and exact retained retry bytes.
+this batch. Hosted CI and macOS were not run locally. Consumers still qualify
+endpoint admission, publication after mutation, lifecycle behavior and exact
+retained retry bytes.
 
 The [runtime study](../evidence/runtime-0716/README.md) and
 [encoder follow-up](../evidence/encoder-followup-0716/README.md) retain their

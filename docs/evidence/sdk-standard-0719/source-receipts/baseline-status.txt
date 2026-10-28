@@ -1,0 +1,5 @@
+ M Cargo.lock
+ M crates/ic-wire-benchmarks/Cargo.toml
+?? crates/ic-wire-benchmarks/examples/caller_generation/
+?? crates/ic-wire-benchmarks/examples/caller_output/
+?? crates/ic-wire-benchmarks/examples/caller_output_instructions/

@@ -1,0 +1,282 @@
+{
+  "status": "PASS",
+  "scope": "Small case0/lane0/repetitions4 from exact existing standard Wire artifact, one fresh owned server/canister, three identical anonymous queries then one query with a distinct valid sender. No native timing/build or production state touched.",
+  "artifact": "/tmp/ic-wire-standard-20261028-y6rOQ1/results-baseline/standard/evaluation-wire.wasm",
+  "artifactSha256": "af70c31f2b7a943becb58b9038fd9593305c34884f89e9953f7def1970301e1a",
+  "artifactBytes": 377601,
+  "serverSha256": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6",
+  "argsHex": "000000000000000004000000",
+  "returns": [
+    {
+      "sender": "2vxsx-fae",
+      "length": 67,
+      "sha256": "66fa61e1d76cf19429d76a43c5002fa007f3501a7aabb675f10ba34e5bee2ef4",
+      "counters": [
+        "3758",
+        "1002",
+        "1846",
+        "942",
+        "942",
+        "398"
+      ],
+      "encodedBytes": "11"
+    },
+    {
+      "sender": "2vxsx-fae",
+      "length": 67,
+      "sha256": "66fa61e1d76cf19429d76a43c5002fa007f3501a7aabb675f10ba34e5bee2ef4",
+      "counters": [
+        "3758",
+        "1002",
+        "1846",
+        "942",
+        "942",
+        "398"
+      ],
+      "encodedBytes": "11"
+    },
+    {
+      "sender": "2vxsx-fae",
+      "length": 67,
+      "sha256": "66fa61e1d76cf19429d76a43c5002fa007f3501a7aabb675f10ba34e5bee2ef4",
+      "counters": [
+        "3758",
+        "1002",
+        "1846",
+        "942",
+        "942",
+        "398"
+      ],
+      "encodedBytes": "11"
+    },
+    {
+      "sender": "x4ex5-ux6df-ts7iq-kzxdk-pfhx5-vun25-ldyj7-wi6ja-czfzs-hy22a-3qe",
+      "length": 67,
+      "sha256": "66fa61e1d76cf19429d76a43c5002fa007f3501a7aabb675f10ba34e5bee2ef4",
+      "counters": [
+        "3758",
+        "1002",
+        "1846",
+        "942",
+        "942",
+        "398"
+      ],
+      "encodedBytes": "11"
+    }
+  ],
+  "identicalQueryReturnCount": 3,
+  "identicalQueryObservedExecutions": 1,
+  "distinctSenderObservedExecutions": 1,
+  "identicalQueryTrace": "/tmp/ic-wire-standard-20261028-y6rOQ1/receipts/cache-probe/traces/three-identical-anonymous/trace.json.gz",
+  "distinctSenderTrace": "/tmp/ic-wire-standard-20261028-y6rOQ1/receipts/cache-probe/traces/different-sender/trace.json.gz",
+  "identicalSummary": {
+    "formatVersion": 2,
+    "serverGeneration": "6af7a027-d199-4a4b-8b27-279f964f7033",
+    "serverBinaryHash": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6",
+    "traceGeneration": "0",
+    "truncated": false,
+    "droppedExecutions": "0",
+    "droppedInstructions": "0",
+    "droppedInstructionsIncomplete": false,
+    "recordedBytes": "11500",
+    "instructionTotalsComplete": true,
+    "memoryDetailsComplete": true,
+    "expectedCalls": 3,
+    "observedExecutions": 1,
+    "missingExecutionRows": 2,
+    "cacheOrNoWasmExecution": true,
+    "runtimeCostsTruncated": false,
+    "subnetRuntimeCostsTruncated": false,
+    "runtimeCostTotalsIncomplete": false,
+    "subnetRuntimeCostTotalsIncomplete": false,
+    "groups": {
+      "replicated": {
+        "executions": 0,
+        "instructions": "0",
+        "pageAccessInstructions": "0",
+        "accessedPages": "0",
+        "dirtyPages": "0",
+        "roundInstructions": "0",
+        "completed": 0,
+        "aborted": 0,
+        "committed": 0,
+        "discarded": 0,
+        "unavailableInstructionCounters": 0,
+        "unavailableMemoryDetails": 0
+      },
+      "query": {
+        "executions": 1,
+        "instructions": "283466",
+        "pageAccessInstructions": "240000",
+        "accessedPages": "3",
+        "dirtyPages": "0",
+        "roundInstructions": "283466",
+        "completed": 1,
+        "aborted": 0,
+        "committed": 0,
+        "discarded": 0,
+        "unavailableInstructionCounters": 0,
+        "unavailableMemoryDetails": 0
+      },
+      "inspection": {
+        "executions": 0,
+        "instructions": "0",
+        "pageAccessInstructions": "0",
+        "accessedPages": "0",
+        "dirtyPages": "0",
+        "roundInstructions": "0",
+        "completed": 0,
+        "aborted": 0,
+        "committed": 0,
+        "discarded": 0,
+        "unavailableInstructionCounters": 0,
+        "unavailableMemoryDetails": 0
+      }
+    },
+    "rows": [
+      {
+        "sequence": "0",
+        "api": "non replicated query",
+        "function": "canister_query benchmark",
+        "category": "query",
+        "instructions": "283466",
+        "pageAccessInstructions": "240000",
+        "accessedPages": "3",
+        "dirtyPages": "0",
+        "instructionsAvailable": true,
+        "memoryAvailable": true,
+        "detailTruncated": false,
+        "attempt": {
+          "attempt_id": "1",
+          "status": "completed",
+          "slice_count": "1",
+          "total_round_instructions": "283466",
+          "slices": [
+            {
+              "slice_index": "0",
+              "event": "finished",
+              "instructions": "283466",
+              "instruction_kind": "round_instructions"
+            }
+          ],
+          "slice_details_truncated": false,
+          "memory_details_available": true,
+          "instructions_available": true
+        },
+        "disposition": {
+          "logical_execution_id": "1",
+          "state": "not_applicable",
+          "reason": "Non-replicated query or inspection state is never committed to replicated canister state"
+        },
+        "moduleHash": "af70c31f2b7a943becb58b9038fd9593305c34884f89e9953f7def1970301e1a",
+        "moduleHashKind": "installed_uncompressed_sha256"
+      }
+    ]
+  },
+  "distinctSummary": {
+    "formatVersion": 2,
+    "serverGeneration": "6af7a027-d199-4a4b-8b27-279f964f7033",
+    "serverBinaryHash": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6",
+    "traceGeneration": "2",
+    "truncated": false,
+    "droppedExecutions": "0",
+    "droppedInstructions": "0",
+    "droppedInstructionsIncomplete": false,
+    "recordedBytes": "11500",
+    "instructionTotalsComplete": true,
+    "memoryDetailsComplete": true,
+    "expectedCalls": 1,
+    "observedExecutions": 1,
+    "missingExecutionRows": 0,
+    "cacheOrNoWasmExecution": false,
+    "runtimeCostsTruncated": false,
+    "subnetRuntimeCostsTruncated": false,
+    "runtimeCostTotalsIncomplete": false,
+    "subnetRuntimeCostTotalsIncomplete": false,
+    "groups": {
+      "replicated": {
+        "executions": 0,
+        "instructions": "0",
+        "pageAccessInstructions": "0",
+        "accessedPages": "0",
+        "dirtyPages": "0",
+        "roundInstructions": "0",
+        "completed": 0,
+        "aborted": 0,
+        "committed": 0,
+        "discarded": 0,
+        "unavailableInstructionCounters": 0,
+        "unavailableMemoryDetails": 0
+      },
+      "query": {
+        "executions": 1,
+        "instructions": "283466",
+        "pageAccessInstructions": "240000",
+        "accessedPages": "3",
+        "dirtyPages": "0",
+        "roundInstructions": "283466",
+        "completed": 1,
+        "aborted": 0,
+        "committed": 0,
+        "discarded": 0,
+        "unavailableInstructionCounters": 0,
+        "unavailableMemoryDetails": 0
+      },
+      "inspection": {
+        "executions": 0,
+        "instructions": "0",
+        "pageAccessInstructions": "0",
+        "accessedPages": "0",
+        "dirtyPages": "0",
+        "roundInstructions": "0",
+        "completed": 0,
+        "aborted": 0,
+        "committed": 0,
+        "discarded": 0,
+        "unavailableInstructionCounters": 0,
+        "unavailableMemoryDetails": 0
+      }
+    },
+    "rows": [
+      {
+        "sequence": "1",
+        "api": "non replicated query",
+        "function": "canister_query benchmark",
+        "category": "query",
+        "instructions": "283466",
+        "pageAccessInstructions": "240000",
+        "accessedPages": "3",
+        "dirtyPages": "0",
+        "instructionsAvailable": true,
+        "memoryAvailable": true,
+        "detailTruncated": false,
+        "attempt": {
+          "attempt_id": "2",
+          "status": "completed",
+          "slice_count": "1",
+          "total_round_instructions": "283466",
+          "slices": [
+            {
+              "slice_index": "0",
+              "event": "finished",
+              "instructions": "283466",
+              "instruction_kind": "round_instructions"
+            }
+          ],
+          "slice_details_truncated": false,
+          "memory_details_available": true,
+          "instructions_available": true
+        },
+        "disposition": {
+          "logical_execution_id": "2",
+          "state": "not_applicable",
+          "reason": "Non-replicated query or inspection state is never committed to replicated canister state"
+        },
+        "moduleHash": "af70c31f2b7a943becb58b9038fd9593305c34884f89e9953f7def1970301e1a",
+        "moduleHashKind": "installed_uncompressed_sha256"
+      }
+    ]
+  },
+  "conclusion": "Exact binary reuses the result of repeated identical queries; only one underlying execution observed for three returns. Changing sender produced a fresh execution with identical bytes.",
+  "limits": "Probe establishes observed Wasm execution counts, not the internal cache layer or complete replica-source closure. Do not count repeated driver return samples as independent executions."
+}

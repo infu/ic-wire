@@ -20,6 +20,15 @@
   [SDK integration](docs/sdk-integration.md), addressing
   [#29 — Add payload-only client codecs and bounded caller storage for SDK integration](https://github.com/dragginzgame/ic-wire/issues/29).
 
+### 🧪 Testing
+
+- Qualify the existing benchmark suite against 0.7.18 with all 21 maintained
+  cohorts plus hotspots, both optimization profiles and wasm32 IC artifacts.
+  Existing IC instruction and native allocation/heap metrics match exactly; all 88
+  Wasm artifact pairs are byte-identical. Retain native timing differences,
+  query-execution reuse limits and the separate new-API tradeoffs in
+  [the measured evidence](docs/evidence/sdk-standard-0719/README.md).
+
 ## [0.7.18] - 2026-10-26
 
 ### 📝 Summary
