@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.22] - Unreleased
+
+### 🩹 Fixed
+
+- Share bounded slice and scoped-fallback writing passes to reduce encoder
+  inlining regressions when owned, reused, slice and scoped output coexist.
+  Preserve public APIs, two-pass admission, exact output caps, errors and wire
+  bytes. No endpoint migration or retry-byte change is required.
+
+### 🧪 Testing
+
+- Add a combined-output Wasm fixture and retain a
+  [matched 0.7.21 follow-up](docs/evidence/output-coexistence-0722/README.md).
+  The large ordinary-vector opt-3 regression is almost eliminated; opt-z
+  regressions remain. Report all small-input tradeoffs and both uncompressed
+  total and code-section sizes rather than claiming universal equivalence.
+
 ## [0.7.21] - 2026-10-28
 
 ### ✨ Added

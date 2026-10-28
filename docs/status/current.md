@@ -1,12 +1,38 @@
 # Current handoff
 
-## Released 0.7.20; pending 0.7.21 SDK helpers, parallel CI and IC adoption
+## Released 0.7.21; pending 0.7.22 output coexistence follow-up
 
-Baseline HEAD is `1608df0661137003c7126040e8656598b98d5bd8` / release 0.7.20.
-Own versions remain 0.7.20; the 0.7.21 changelog is a draft. Leave staging,
-commits, releases, publication and pushes to the maintainer. The pending batch
-preserves existing APIs, generated clients, protocol bytes, identities and
-admission rules; no consumer migration is required.
+Baseline is `15c8b7ac881c008b2af0bd2c3d79502605a36d0d` / version 0.7.21.
+All requested SDK producer APIs are already upstream: payload-only TypeScript,
+caller slices, scoped scratch/fallback output, Serde crate-path support and
+standalone schema validation. Issue #29 is closed. SDK method/transport wrappers
+remain consumer-owned. The original feature proposal is superseded.
+
+The pending compatible 0.7.22 fix shares existing bounded writing passes, keeping
+preflight beside writing for ordinary callers and reusing its exact admitted
+size for scoped fallback. Public APIs, bytes, admission, two Serialize visits,
+errors and input-drop timing are unchanged. Own package versions remain 0.7.21;
+there is no release, publication, installed SDK change or deployment.
+
+The [new matched study](../evidence/output-coexistence-0722/README.md) rebuilds
+old implementation, current head and candidate with the head dependency graph
+and the identical PocketIC 16.1.0 executable. In a canister using all four output
+APIs, opt-3 scoped ordinary-u8/262144 falls from 19,399,524 to 12,583,797
+instructions (old control 12,583,791); opt-z still costs 34.41% above old.
+Total/code bytes fall 58,183/55,290 to 55,303/52,420 at opt-3 and
+52,350/49,075 to 47,935/44,670 at opt-z. All 160 distinct counter pairs and six
+small regressions are retained. This is a partial performance fix.
+
+Focused native tests (34), doctests (15), strict runtime/fixture Clippy and the
+Rust 1.91 Wasm check pass. Four fresh standard/hotspot Wire artifact pairs
+(both profiles) are byte-identical. Source review found no admission/lifetime issue.
+These checks do not establish native timing, SDK Heavy16 behavior, mainnet
+latency or complete elimination of regressions. No full CI gate was run.
+
+## Preserved 0.7.21 handoff context
+
+The following release-context observations and older studies retain their
+original qualification scope; their hosted status was not rechecked here.
 
 ## Hosted CI groups
 

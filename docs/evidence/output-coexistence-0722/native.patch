@@ -1,0 +1,129 @@
+diff --git a/crates/ic-wire/src/native/mod.rs b/crates/ic-wire/src/native/mod.rs
+index c984945..2c0543e 100644
+--- a/crates/ic-wire/src/native/mod.rs
++++ b/crates/ic-wire/src/native/mod.rs
+@@ -98,7 +98,7 @@ fn encode_prefixed<T: Serialize + ?Sized>(
+     prefix: &[u8],
+ ) -> Result<Vec<u8>, Error> {
+     let mut bytes = Vec::new();
+-    encode_prefixed_into(value, limits, prefix, &mut bytes)?;
++    encode_prefixed_into(value, limits, prefix, &mut bytes, None)?;
+     Ok(bytes)
+ }
+ 
+@@ -110,7 +110,7 @@ pub fn encode_into<T: Serialize + ?Sized>(
+     limits: Limits,
+     bytes: &mut Vec<u8>,
+ ) -> Result<(), Error> {
+-    encode_prefixed_into(value, limits, &[], bytes)
++    encode_prefixed_into(value, limits, &[], bytes, None)
+ }
+ 
+ /// Encode a payload into caller-owned storage without allocating codec output.
+@@ -170,27 +170,16 @@ pub fn with_encoded<T: Serialize, R>(
+     consume: impl FnOnce(&[u8]) -> R,
+ ) -> Result<R, Error> {
+     let size = encoded_len(&value, limits)?;
+-    let budget = Budget::new(limits);
+-    let bounded = encode::Bounded {
+-        value: &value,
+-        budget: &budget,
+-        depth: 1,
+-    };
+     // New destination selection only: both writers are capped at the preflight
+     // size. Postcard bytes and admission match encode; e.g. u64 7 remains 07.
+     // Existing endpoints/retries need no migration or alternate codec.
+     if let Some(storage) = scratch.get_mut(..size) {
+-        let bytes = postcard::to_slice(&bounded, storage).map_err(|_| budget.error())?;
++        let bytes = encode_sized_to_slice(&value, limits, storage)?;
+         drop(value);
+         Ok(consume(bytes))
+     } else {
+         let mut bytes = Vec::new();
+-        bytes
+-            .try_reserve_exact(size)
+-            .map_err(|_| Error::Allocation)?;
+-        let bytes =
+-            postcard::serialize_with_flavor(&bounded, contract::Output { bytes, limit: size })
+-                .map_err(|_| budget.error())?;
++        encode_prefixed_into(&value, limits, &[], &mut bytes, Some(size))?;
+         drop(value);
+         Ok(consume(&bytes))
+     }
+@@ -225,22 +214,34 @@ fn encode_prefixed_to_slice<'a, T: Serialize + ?Sized>(
+     let size = encoded_len(value, payload_limits(limits, prefix.len())?)?;
+     let output = storage.get_mut(..size + prefix.len()).ok_or(Error::Limit)?;
+     output[..prefix.len()].copy_from_slice(prefix);
+-    let budget = Budget::new(limits);
+     // New storage API, same Postcard bytes and admission as Vec output. The
+     // slice flavor bounds every write, including inconsistent custom Serialize
+     // passes. Only Ok publishes a completed prefix; no inline/spill policy or
+     // framing change is introduced, and existing consumers need no migration.
+-    let payload = postcard::to_slice(
++    let payload = encode_sized_to_slice(value, limits, &mut output[prefix.len()..])?;
++    let written = prefix.len() + payload.len();
++    Ok(&mut output[..written])
++}
++
++#[cfg_attr(target_arch = "wasm32", inline)]
++fn encode_sized_to_slice<'a, T: Serialize + ?Sized>(
++    value: &T,
++    limits: Limits,
++    storage: &'a mut [u8],
++) -> Result<&'a mut [u8], Error> {
++    // Both callers trimmed storage to the size admitted on this value. Keep a
++    // fresh writing budget beside its serializer and share one slice pass.
++    // Bytes, admission and partial-failure behavior remain unchanged.
++    let budget = Budget::new(limits);
++    postcard::to_slice(
+         &encode::Bounded {
+             value,
+             budget: &budget,
+             depth: 1,
+         },
+-        &mut output[prefix.len()..],
++        storage,
+     )
+-    .map_err(|_| budget.error())?;
+-    let written = prefix.len() + payload.len();
+-    Ok(&mut output[..written])
++    .map_err(|_| budget.error())
+ }
+ 
+ fn encode_prefixed_into<T: Serialize + ?Sized>(
+@@ -248,9 +249,16 @@ fn encode_prefixed_into<T: Serialize + ?Sized>(
+     limits: Limits,
+     prefix: &[u8],
+     bytes: &mut Vec<u8>,
++    admitted_size: Option<usize>,
+ ) -> Result<(), Error> {
+     bytes.clear();
+-    let size = encoded_len(value, payload_limits(limits, prefix.len())?)?;
++    // Keep sizing beside writing for existing callers. Scoped heap output is
++    // the sole Some caller: an empty prefix, and encoded_len on the same value
++    // and limits. This reuses admission without adding a third Serialize visit.
++    let size = match admitted_size {
++        Some(size) => size,
++        None => encoded_len(value, payload_limits(limits, prefix.len())?)?,
++    };
+     bytes
+         .try_reserve_exact(size + prefix.len())
+         .map_err(|_| Error::Allocation)?;
+@@ -278,7 +286,7 @@ pub fn encode_request_into<T: Serialize + ?Sized>(
+     limits: Limits,
+     bytes: &mut Vec<u8>,
+ ) -> Result<(), Error> {
+-    encode_prefixed_into(value, limits, &contract::header(id, 0), bytes)
++    encode_prefixed_into(value, limits, &contract::header(id, 0), bytes, None)
+ }
+ 
+ /// Encode a response into reusable storage; follows [`encode_into`] failure semantics.
+@@ -288,7 +296,7 @@ pub fn encode_response_into<T: Serialize + ?Sized>(
+     limits: Limits,
+     bytes: &mut Vec<u8>,
+ ) -> Result<(), Error> {
+-    encode_prefixed_into(value, limits, &contract::header(id, 1), bytes)
++    encode_prefixed_into(value, limits, &contract::header(id, 1), bytes, None)
+ }
+ 
+ /// Decode a complete Postcard payload; allocation admission precedes visitor calls.

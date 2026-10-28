@@ -11,6 +11,9 @@ dhat.workspace = true
 ic-testkit.workspace = true
 
 [features]
+# Combined output APIs expose consumer inlining effects; controls are study-only.
+caller-output = []
+caller-output-baseline = ["caller-output"]
 wire = []
 candid = []
 allocations = []
@@ -90,3 +93,9 @@ missing_docs = "warn"
 name = "roundtrip"
 path = "tests/roundtrip/mod.rs"
 required-features = ["wire", "candid"]
+
+[[example]]
+name = "caller-output-wasm"
+path = "examples/caller_output/mod.rs"
+crate-type = ["cdylib"]
+required-features = ["caller-output"]

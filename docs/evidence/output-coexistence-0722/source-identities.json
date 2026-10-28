@@ -1,0 +1,22 @@
+{
+  "upstream_head": "15c8b7ac881c008b2af0bd2c3d79502605a36d0d",
+  "old_runtime_source": "c748379325266d7fa614fefee9d745eb4a88acca",
+  "old_control": "Only ic-wire and ic-wire-derive restored into head workspace; root metadata and dependencies remain head.",
+  "candidate": "upstream_head plus native.patch; benchmark wiring common to both head and fixed",
+  "guest_lock_sha256": "9e9ffba99cb69b7bcc6e29f104c63bc7be7c9ba0e5a5f4a2e156e5701d16e3b1",
+  "guest_fixture_sha256": "b555ec974fb071361364847a1ca019a64ab21d2f7e02003e5bd0199a452e5965",
+  "native_before_sha256": "df8f7c627e77ade866c1b2d8e56d7f4590eae3261f00a3b7b8517809ee149331",
+  "native_fixed_sha256": "45e44bccebe5b657bac7e28a2fc13527746fe2ea3fb8803d88a7ba9210c8f152",
+  "native_patch_sha256": "4d103bfda4b844d6d6fb3969d233e4ea43adf2e0637b3a65160c9718d267a876",
+  "controller_source": "6fe96d848493127b7638c36ca80261138a121c41",
+  "controller_executable_sha256": "15bab1be5452539f0ac46a768f98bbb6245ffd27d4f722c738c4bb25aa2eebfb",
+  "raw_identity_scope": "Raw identity.json lock_sha256 and fixture_sha256 are the compiled host-controller identities, NOT the fresh guest graph/fixture above. For head/fixed, baseline slots 2/3 are real slice/scoped APIs despite historical operation labels.",
+  "server_sha256": "6a9a75ad9b4551d2b0f4a0d954ffb8bd5bbd0ebc44ac00290679b06ad0b2f8e6",
+  "compiler": "rustc 1.99.1 (58cf8f9c35b355199727627d07ae34a4e2846d67), LLVM 23.1.1",
+  "target": "wasm32-unknown-unknown",
+  "context_only": {
+    "newstack": "d840e6bb69e055d9daef0d9da8d7d5dd310bfd7e",
+    "sdk": "b0fb29b2b99a7ea7b86408a11d6d219c7a5d45da",
+    "note": "Not SDK/Heavy16 builds or measurements; no new SDK source adoption."
+  }
+}
