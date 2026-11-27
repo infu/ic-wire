@@ -40,6 +40,11 @@ const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const utf16 = new TextEncoder();
 const littleEndian = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 const packedArrays = {i8:Int8Array,i16:Int16Array,u16:Uint16Array,i32:Int32Array,u32:Uint32Array,i64:BigInt64Array,u64:BigUint64Array,hash16:Uint8Array,hash32:Uint8Array,'finite-f32':Float32Array,'finite-f64':Float64Array} as const;
+// The intrinsic getter reads the typed-array brand across realms and ignores user-defined tags.
+const typedArrayTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)!.get!;
+function isTypedArray<C extends { name: string; prototype: ArrayBufferView }>(value: unknown, ctor: C): value is C['prototype'] {
+  return typedArrayTag.call(value) === ctor.name;
+}
 function finiteWords(bytes: Uint8Array, width: number, little: boolean): boolean {
   const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
   for(let offset=0;offset<bytes.length;offset+=width) {
@@ -207,7 +212,7 @@ function write(schema: Schema, value: unknown, out: Writer, budget: Budget, dept
       return;
     }
     case 'bytes': {
-      if (!(value instanceof Uint8Array)) return fail('value');
+      if (!isTypedArray(value, Uint8Array)) return fail('value');
       if (s.min !== undefined && value.length < s.min) fail('value');
       if (s.max !== undefined && value.length > s.max) fail('limit');
       out.varint(BigInt(value.length)); out.raw(value); return;
@@ -223,7 +228,7 @@ function write(schema: Schema, value: unknown, out: Writer, budget: Budget, dept
       }
 
       const kind=s.word, ctor=packedArrays[kind];
-      if (!(value instanceof ctor)) return fail('value');
+      if (!isTypedArray(value, ctor)) return fail('value');
       const opaque=kind==='hash16'||kind==='hash32', width=kind==='hash16'?16:kind==='hash32'?32:ctor.BYTES_PER_ELEMENT;
       if(value.byteLength%width) return fail('value');
       if (s.max !== undefined && value.byteLength / width > s.max) fail('limit');
@@ -506,7 +511,7 @@ export function createPayloadCodec(metadata: unknown, registry: unknown = {}, ch
       return out.finish();
     },
     decode(bytes: Uint8Array): unknown {
-      if (!(bytes instanceof Uint8Array)) return fail('value');
+      if (!isTypedArray(bytes, Uint8Array)) return fail('value');
       if (bytes.length > meta.bytes) return fail('limit');
       try {
         const input = new Reader(bytes);
@@ -536,7 +541,7 @@ export function createCodec(metadata: unknown, registry: unknown = {}, checks:Ch
     return out.finish();
   }
   function decode(bytes: Uint8Array, direction: 0 | 1): unknown {
-    if (!(bytes instanceof Uint8Array)) return fail('value');
+    if (!isTypedArray(bytes, Uint8Array)) return fail('value');
     if (bytes.length > (direction ? meta.responseBytes : meta.requestBytes)) return fail('limit');
     if (bytes.length < headerBytes) return fail('malformed');
     if (bytes[0] !== 73 || bytes[1] !== 87 || bytes[10] !== direction) return fail('identity');

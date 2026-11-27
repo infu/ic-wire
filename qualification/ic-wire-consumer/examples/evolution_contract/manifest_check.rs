@@ -15,9 +15,11 @@ use std::{
     io::Read,
     path::Path,
 };
-use wire::typescript::{__private::Value, SchemaLimits, ValidatedRegistry};
+use wire::typescript::{
+    __private::Value, Method as WireMethod, PayloadLimits, SchemaLimits, ValidatedRegistry,
+};
 
-const MAX_DOCUMENT_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_METHODS: usize = 256;
 pub(super) const MAX_HISTORY: usize = 32;
 const MAX_PROJECTED_SHAPES: usize = 65_536;
@@ -108,11 +110,11 @@ fn read_json(path: &Path) -> Result<Value> {
         let mut source = String::new();
         File::open(path)
             .and_then(|file| {
-                file.take(MAX_DOCUMENT_BYTES + 1)
+                file.take(MAX_DOCUMENT_BYTES as u64 + 1)
                     .read_to_string(&mut source)
             })
             .map_err(|error| error.to_string())?;
-        if source.len() as u64 > MAX_DOCUMENT_BYTES {
+        if source.len() > MAX_DOCUMENT_BYTES {
             return Err("manifest exceeds the input size limit".into());
         }
         source.parse::<Value>().map_err(|error| error.to_string())
@@ -448,15 +450,20 @@ impl<'a> Projector<'a> {
         let id = text(document, "id")?
             .parse()
             .map_err(|_| "invalid decimal method ID")?;
-        for position in ["request", "response"] {
-            let limits = &document[position]["payload_limits"];
-            for key in ["bytes", "nodes", "depth"] {
-                let cap = unsigned(limits, key)?;
-                if cap > ((1_u64 << 53) - 1) || (key != "bytes" && cap == 0) {
-                    return Err(format!("invalid {position} payload limit {key}"));
-                }
-            }
-        }
+        let direction = |position: &str| -> Result<(&str, PayloadLimits)> {
+            let direction = &document[position];
+            let limits = &direction["payload_limits"];
+            Ok((
+                text(direction, "root")?,
+                PayloadLimits {
+                    bytes: unsigned(limits, "bytes")?,
+                    nodes: unsigned(limits, "nodes")?,
+                    depth: unsigned(limits, "depth")?,
+                },
+            ))
+        };
+        let (request, request_limits) = direction("request")?;
+        let (response, response_limits) = direction("response")?;
         let definitions = document["schemas"]
             .as_object()
             .ok_or("missing schema definitions")?;
@@ -464,8 +471,27 @@ impl<'a> Projector<'a> {
             .iter()
             .map(|(key, shape)| (key.clone(), shape.clone()))
             .collect();
-        ValidatedRegistry::from_metadata(&admitted, SchemaLimits::default())
+        let limits = SchemaLimits {
+            output_bytes: MAX_DOCUMENT_BYTES,
+            ..SchemaLimits::default()
+        };
+        let registry = ValidatedRegistry::from_metadata(&admitted, limits)
             .map_err(|error| format!("manifest schema rejected: {error:?}"))?;
+        // Apply the same method admission as the manifest generator, including
+        // sparse roots reached through aliases and nonzero payload allowances.
+        registry
+            .api_manifests(&[(
+                name,
+                WireMethod {
+                    export: text(document, "export")?,
+                    id,
+                    request,
+                    response,
+                    request_limits,
+                    response_limits,
+                },
+            )])
+            .map_err(|error| format!("manifest method rejected: {error:?}"))?;
         let mut types = Types::new();
         for key in definitions.keys() {
             let index = self.push(Raw::Leaf(Shape::Scalar(Scalar::Unit)))?;
@@ -499,8 +525,7 @@ impl<'a> Projector<'a> {
                 }
             }
         }
-        let root = |position| {
-            let name = text(&document[position], "root")?;
+        let root = |name| {
             types
                 .get(name)
                 .copied()
@@ -510,8 +535,8 @@ impl<'a> Projector<'a> {
             name,
             id,
             mode,
-            request: root("request")?,
-            response: root("response")?,
+            request: root(request)?,
+            response: root(response)?,
         })
     }
 

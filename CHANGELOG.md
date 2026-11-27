@@ -24,6 +24,10 @@
 - Validate projected layouts during TypeScript client generation. Fixed Serde
   subtrees support ordinary records and tuples.
 - Reject browser byte limits that cannot fit an empty sparse root.
+- Accept byte and packed typed arrays from other JavaScript realms in
+  generated clients.
+- Reject zero-byte payload limits and non-sparse method roots in offline
+  upgrade checks.
 
 ### 🧪 Testing
 
