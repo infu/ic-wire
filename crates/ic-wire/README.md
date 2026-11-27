@@ -17,7 +17,7 @@ use ic_wire::{decode, encode, Encoding, Limits, Wire};
 #[derive(Debug, PartialEq, Wire)]
 struct Reply { accepted: bool, revision: u64 }
 
-let limits = Limits { bytes: 64, allocation: 4096, nodes: 32, depth: 8 };
+let limits = Limits { bytes: 64, allocation: 4096, nodes: 64, depth: 8 };
 let value = Reply { accepted: true, revision: 129 };
 let bytes = encode(&value, Encoding::Payload, limits)?;
 let decoded: Reply = decode(&bytes, Encoding::Payload, limits)?;
@@ -28,8 +28,9 @@ assert_eq!(decoded, value);
 Use `Encoding::Frame { method, direction }` for request/response framing and
 `method_id(name)` for name-derived identities. `encode_into` reuses a Vec and
 `encode_to_slice` writes a derived message into caller storage. Both handle
-temporary extension storage under the encoder's limits. Decode rejects trailing
-bytes. Header identity is independent of authentication.
+temporary extension storage under the encoder's limits. For manual roots,
+use `evolution::encode_projected_to_slice`. Decode rejects trailing bytes.
+Header identity is independent of authentication.
 
 ## Fields and limits
 
@@ -45,12 +46,13 @@ Use `Packed<i16, N>` in place of the removed `PackedI16<N>`; there is no old-nam
 alias. Browser metadata uses one `packed` kind with a word and optional maximum.
 
 Limits govern bytes, conservative allocation charges, traversal nodes and depth.
-Allocation allowance is not measured process heap usage. Encode preflights before
-codec output allocation; custom Serde code remains trusted and must serialize
-deterministically across passes. Reusable output is empty after errors; slice
-output may be modified on errors other than an undersized destination. Retain
-original input bytes when signatures, retries or hashes depend on them: decoding
-and re-encoding can normalize collections or accepted noncanonical forms.
+Allocation accounting is conservative and differs from measured heap usage.
+Owned encoding sizes the message before allocating output. Custom Serde code
+remains trusted and must serialize deterministically across passes. Reusable Vec
+output is empty on error. Slice encoding may modify the destination before
+returning an error, including when it is too short. Publish only the prefix
+returned on success. Retain original input bytes for signatures, retries or
+hashes because decoding and re-encoding can normalize their representation.
 
 ### Sizing a request or reply
 
@@ -212,7 +214,7 @@ connects a generated client to a Rust canister over HTTP. Its `read` query and
 `add` update both use raw Wire frames. The application supplies the agent and
 its identity. The guest checks the complete request length before copying it,
 decodes before updating the counter, and traps on invalid input. Both request
-and reply allow 16 bytes including the header. The generator checks both method
+and reply allow 17 bytes including the header. The generator checks both method
 IDs together. These raw methods have no Candid signature for Candid UI calls.
 
 Register application roots with `SchemaRegistry`, finish into `ValidatedRegistry`,

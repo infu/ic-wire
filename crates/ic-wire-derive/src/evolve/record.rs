@@ -649,6 +649,8 @@ fn codec(input: &DeriveInput, owner: &Path, layout: &Layout<'_>) -> TokenStream 
                     #inline::decode(#input_bytes, #encoding, #limits)
                 }
             }
+
+            impl #implementation #inline::InlineMessage<#de> for #name #parameters #bounds {}
         };
     }
 }

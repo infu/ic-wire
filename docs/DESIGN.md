@@ -76,11 +76,12 @@ selects frames. `method_id` hashes UTF-8 `ic-wire:method:` plus the exact export
 name with FNV-1a-64. This is routing identity, not authentication or a schema hash.
 Host method generation rejects duplicate IDs and export names.
 
-Every message has a sparse root. The typed Rust APIs `encode`, `encode_into`,
-`encode_to_slice` and `decode` require an evolving declaration. Untagged fields
-form the positional core. A fixed subtree may use ordinary Serde layout inside
-that core. For open variants, recovery boundaries and custom staging, the
-explicit projection API takes a `Projected` value with a root extension block.
+Every message has a sparse root. The typed Rust APIs `encode`, `encode_into`
+and `decode` require an evolving declaration. `encode_to_slice` uses the
+root projection supplied by the `Wire` derive. Untagged fields form the
+positional core. A fixed subtree may use ordinary Serde layout inside that
+core. For open variants, recovery boundaries and custom staging, the explicit
+projection API takes a `Projected` value with a root extension block.
 
 - The owned path sizes and admits the projected value before reserving output.
   Reusable output is empty on error.

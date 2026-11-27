@@ -4,6 +4,8 @@ use crate::{Direction, Encoding, Error, Limits, method_id};
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
+use super::inline::InlineMessage;
+
 /// A value with typed encoding and projection through the evolutionary codec.
 ///
 /// Decoded values may borrow from the frame or payload for `'de`.
@@ -63,10 +65,29 @@ pub fn encode_into<'out, 'de, T: Evolving<'de>>(
 
 /// Encode a derived Wire message directly into caller-owned output.
 ///
+/// Use [`crate::evolution::encode_projected_to_slice`] for a manually
+/// projected message. A fixed nested layout can implement `Evolving` with
+/// a different root layout, so those bounds alone cannot select the slice
+/// representation.
+///
+/// ```compile_fail,E0277
+/// use ic_wire::{Encoding, Evolving, Limits, encode_to_slice};
+/// use ic_wire::evolution::inline::Fixed;
+/// use serde::{Deserialize, Serialize};
+///
+/// fn write_slice<'de, T>(value: &T, limits: Limits, output: &mut [u8])
+/// where
+///     T: Evolving<'de> + Fixed + Serialize + Deserialize<'de>,
+/// {
+///     encode_to_slice(value, Encoding::Payload, limits, output).unwrap();
+/// }
+/// ```
+///
 /// # Errors
 /// Returns a preparation, encoding, allowance or destination capacity error.
-/// Only the returned prefix on success contains a complete message.
-pub fn encode_to_slice<'out, 'de, T: Evolving<'de> + super::inline::Inline<'de>>(
+/// A failed write may modify the destination. Only the prefix returned on
+/// success contains a complete message.
+pub fn encode_to_slice<'out, 'de, T: InlineMessage<'de>>(
     value: &T,
     encoding: Encoding,
     limits: Limits,
@@ -216,7 +237,10 @@ impl<Request, Reply> Method<Request, Reply> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evolution::{Projected, decode_projected, encode_projected_into};
+    use crate::evolution::{
+        Projected, decode_projected, encode_projected_into, encode_projected_to_slice,
+        inline::Fixed,
+    };
     use crate::{LimitKind, TextRef};
     use serde::{Deserialize, Serialize};
 
@@ -225,6 +249,8 @@ mod tests {
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     struct Reply(u16);
+
+    impl Fixed for Reply {}
 
     impl<'de: 'a, 'a> Evolving<'de> for Request<'a> {
         fn encode_evolving(
@@ -342,5 +368,20 @@ mod tests {
             LOOKUP.decode_reply(&large),
             Err(Error::Limit(LimitKind::Bytes))
         );
+    }
+
+    #[test]
+    fn fixed_nested_reply_uses_its_explicit_projection_at_the_root() {
+        let value = Reply(42);
+        let encoding = Encoding::Payload;
+        let owned = encode(&value, encoding, REPLY_LIMITS).unwrap();
+        let mut output = [0; 2];
+        let slice = encode_projected_to_slice(&mut output, encoding, REPLY_LIMITS, |_| {
+            Ok(Projected::empty(&value))
+        })
+        .unwrap();
+        assert_eq!(slice, [42, 0]);
+        assert_eq!(slice, owned);
+        assert_eq!(decode::<Reply>(slice, encoding, REPLY_LIMITS), Ok(value));
     }
 }

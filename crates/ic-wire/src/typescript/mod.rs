@@ -48,6 +48,7 @@ pub const RUNTIME: &str = include_str!("runtime.ts");
 #[derive(Clone, Copy, Debug)]
 pub struct PayloadLimits {
     /// Maximum payload bytes, excluding any frame or transport envelope.
+    /// A message requires at least one byte for its sparse root.
     pub bytes: u64,
     /// Maximum runtime value visits; must be nonzero.
     pub nodes: u64,
@@ -293,15 +294,30 @@ impl ValidatedRegistry {
     }
 
     fn validate_evolving_roots(&self, roots: &BTreeSet<String>) -> Result<(), GenerationError> {
-        if roots.is_empty() {
-            return Ok(());
-        }
         let indices = roots
             .iter()
             .map(|root| self.root_index(root))
             .collect::<Result<Vec<_>, _>>()?;
+        self.validate_projection_layouts(self.evolving_root_nodes(&indices)?.into_iter())
+    }
+
+    fn validate_message_roots(&self, roots: &[usize]) -> Result<(), GenerationError> {
+        let roots = self.evolving_root_nodes(roots)?;
+        // A projected root declares that its descendants follow Rust's
+        // generated projection. Manually supplied layouts own their encoding.
+        self.validate_projection_layouts(
+            roots
+                .into_iter()
+                .filter(|id| self.annotations.get(id).is_some_and(|a| a.projected)),
+        )
+    }
+
+    fn validate_projection_layouts(
+        &self,
+        roots: impl Iterator<Item = usize>,
+    ) -> Result<(), GenerationError> {
         let mut pending = Vec::new();
-        for id in self.evolving_root_nodes(&indices)? {
+        for id in roots {
             match &self.nodes[id] {
                 Node::ExtensionRecord { fields, extensions } => {
                     pending.extend(fields.iter().map(|(_, child)| (*child, true)));
@@ -314,6 +330,9 @@ impl ValidatedRegistry {
                 _ => unreachable!("admitted evolving root"),
             }
         }
+        if pending.is_empty() {
+            return Ok(());
+        }
 
         // Generated projection follows containers. A fixed Serde aggregate
         // decodes its descendants as ordinary Serde, so reachability from each
@@ -324,7 +343,7 @@ impl ValidatedRegistry {
                 continue;
             }
             let flags = self.annotations.get(&id);
-            let fixed = flags.is_some_and(|a| a.fixed);
+            let fixed = !can_project || flags.is_some_and(|a| a.fixed);
             let projected = can_project && flags.is_some_and(|a| a.projected);
             match &self.nodes[id] {
                 Node::Record(fields) if fixed => {

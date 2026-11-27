@@ -51,6 +51,13 @@ pub trait Inline<'de>: Sized {
     fn project(input: Self::Decoded, context: &ReadContext<'_>) -> Result<Self, Error>;
 }
 
+/// A typed message whose inline projection includes the sparse root.
+///
+/// Deriving `Wire` on an evolving struct supplies this implementation. The
+/// inline projection must use the same root layout as its `Evolving`
+/// implementation.
+pub trait InlineMessage<'de>: Evolving<'de> + Inline<'de> {}
+
 impl<'de, T: Fixed + Serialize + Deserialize<'de>> Inline<'de> for T {
     const MAY_STAGE: bool = false;
 
@@ -97,7 +104,7 @@ pub fn preserve_incompatible<T>(
 /// Returns the first projection, encoding or admission error. Output is empty
 /// on failure.
 #[doc(hidden)]
-pub fn encode<'de, T: Evolving<'de> + Inline<'de>>(
+pub fn encode<'de, T: InlineMessage<'de>>(
     value: &T,
     output: &mut Vec<u8>,
     encoding: Encoding,
@@ -191,7 +198,7 @@ fn encode_inline<'de, T: Inline<'de>>(
 /// # Errors
 /// Returns a frame, known value, payload or admission error.
 #[doc(hidden)]
-pub fn decode<'de, T: Evolving<'de> + Inline<'de>>(
+pub fn decode<'de, T: InlineMessage<'de>>(
     input: &'de [u8],
     encoding: Encoding,
     limits: Limits,

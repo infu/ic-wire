@@ -16,6 +16,13 @@
 - Allow ordinary Serde crate paths, symmetric renames and borrow declarations on
   Wire-derived structs.
 
+### 🐛 Fixed
+
+- Require a message-root projection for typed slice encoding.
+- Validate projected layouts during TypeScript client generation. Fixed Serde
+  subtrees support ordinary records and tuples.
+- Reject browser byte limits that cannot fit an empty sparse root.
+
 ## [0.31.1] - 2026-11-26
 
 ### 🔧 Changed
