@@ -1,27 +1,26 @@
-# Contributing
+# Contributing to IC Wire
 
-This repository is developed by Toko Studios Limited. Contributions are accepted
-only from authorised Toko Studios personnel acting on the company's behalf.
-Outside contributions are not accepted, including code, patches, tests,
-documentation and assets. Repository access, organisation membership or a signed
-CLA alone does not make an outside contributor eligible.
+Open a pull request against `main`. Describe the change, its tests and any
+third-party material. Engineering guidance is in [AGENTS.md](AGENTS.md).
 
-Company-authorised agents and automation may assist eligible personnel, who
-remain responsible for the contribution and its provenance. Do not merge,
-cherry-pick or copy an outside contribution through an internal account or bot.
-External dependencies remain subject to the separate dependency policy.
+## Sign the contributor agreement
 
-Before accepting a contribution, verify company affiliation, authorisation and
-the company's rights to the submitted material. Hold acceptance if any of these
-is unverified. This policy does not assert ownership of earlier contributions.
+Read the [IC Wire Contributor Licence Agreement v1](CLA.md). The pull request
+opener and every commit author and co-author must each post the following as
+a separate, unedited comment from their own GitHub account on the pull request.
 
-Bug reports and feature requests may be considered as feedback; they do not
-make an accompanying implementation eligible for acceptance.
+```text
+I agree to the IC Wire Contributor Licence Agreement v1 for my contributions to this pull request.
+```
 
-## Working in this repository
+The check updates after a comment or new push. Sign once per pull request.
+If you need to correct a statement, post a new comment. If a commit author
+cannot be identified, associate the commit email with the correct GitHub
+account or correct the commit attribution. Never sign on someone else's behalf.
 
-Follow [AGENTS.md](AGENTS.md) for the engineering baseline, local setup,
-validation and delivery authority. Keep product-specific engineering guidance
-there or in its linked guides, without modifying this contribution policy.
+## Maintainers
 
-This file is maintained canonically by Toko Tooling and adopted unchanged.
+Once this workflow is on the default branch, require the commit status
+`IC Wire CLA` from GitHub Actions in the branch rule for `main`.
+The check reads GitHub attribution and comments. Maintainers review rights
+to third-party material and any organizational authorization separately.

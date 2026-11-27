@@ -6,7 +6,6 @@ const quote = JSON.stringify;
 cpSync('qualification/ic-wire-consumer', join(output, 'ic-wire-consumer'), { recursive: true });
 let workspace = readFileSync('qualification/Cargo.toml', 'utf8')
   .replace(/^members = .*$/m, 'members = ["ic-wire-consumer"]')
-  .replace('license-file = "../LICENSE.md"', `license-file = ${quote(join(output, 'ic-wire-' + version, 'LICENSE.md'))}`)
   .replace('path = "../crates/ic-wire"', `path = ${quote(join(output, 'ic-wire-' + version))}`);
 workspace = workspace.replace(/^(candid|proptest|libfuzzer-sys|ic-wire-consumer|serde_bytes|serde_json|stats_alloc|ic-testkit|sha2|tokio) = .*\n/gm, '');
 // Extracted archives are standalone packages, not new workspace members.

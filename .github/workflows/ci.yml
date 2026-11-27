@@ -35,8 +35,8 @@ jobs:
           echo "$RUNNER_TEMP/wire-ci-bin" >> "$GITHUB_PATH"
       - name: Check workflow and hook caller
         run: |
-          actionlint .github/workflows/ci.yml
-          shellcheck scripts/ci/check-formatting-hooks.sh
+          actionlint
+          shellcheck scripts/ci/check-formatting-hooks.sh scripts/ci/check-cla.sh
       - name: Scan complete repository history once
         run: gitleaks git --redact=100 --no-banner --no-color --log-level error
       - name: Retain sanitized setup diagnostics

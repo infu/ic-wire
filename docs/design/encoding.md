@@ -37,8 +37,9 @@ remain delegated to Postcard. Historical comparison runners have been retired;
 - A frame subtracts 11 from both byte and allocation allowances. The
   completed length adds the header back within the admitted byte cap.
 - Envelope preparation, bounded sizing and final Vec writing use the
-  same admission meter. Owned output reserves fallibly after sizing.
-  Reused output is empty on error.
+  same admission meter. Both sizing and Vec output use the same Postcard
+  serializer type, allowing generated code to be shared for each DTO.
+  Owned output reserves fallibly after sizing. Reused output is empty on error.
 - Caller-slice encoding visits the projected value once after preparation.
   A destination shortage reports `Limit(Output)`. A write may modify the
   destination before returning an error. Only the successful prefix is

@@ -13,7 +13,7 @@ help:
 	  'install-hooks         Activate the shared formatting hook in this clone' \
 	  'check-formatting-hooks Qualify the hook against Wire formatting inputs' \
 	  'snapshot-check        Verify installed snapshot bytes offline' \
-	  'deps-list             List workspace package versions' \
+	  'deps-list             List product packages (DEPENDENCY_MANIFEST adds qualification)' \
 	  'deps-update           Run cargo update -v for maintained workspaces' \
 	  '  Optional: DEPENDENCY_PACKAGE=name DEPENDENCY_PRECISE=version' \
 	  'test                  Aggregate product tests (default features)' \

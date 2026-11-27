@@ -1,14 +1,36 @@
 # Changelog
 
-## [0.31.0] - Unreleased
+## [0.32.0] - Unreleased
+
+### ⚠️ Breaking
+
+- Use a sparse root for every public Rust and TypeScript message, including
+  explicit projections. Rebuild positional callers and regenerate clients.
+- Use the normal typed encoding API for evolving messages. It manages bounded
+  temporary extension storage, including when writing to a caller's slice.
+- Enable `derive` for Rust macros and `typescript` for schema tooling.
+  Match `Error::Incompatible` for unknown required cases or fields.
+
+### 🔧 Changed
+
+- Allow ordinary Serde crate paths, symmetric renames and borrow declarations on
+  Wire-derived structs.
+
+## [0.31.1] - 2026-11-26
+
+### 🔧 Changed
+
+- Both published crates now use Apache-2.0. Their archives include the full licence.
+- GitHub checks contributor agreement acceptance on pull requests.
+
+## [0.31.0] - 2026-11-26
 
 ### ➕ Added
 
-- Use sparse record and tuple extensions, stable open variants, and bounded
-  branch recovery from Rust declarations and generated TypeScript clients.
+- Opt into sparse record and tuple extensions, stable open variants, and bounded
+  branch recovery from Rust declarations and generated TypeScript clients. Contributed by [infu](https://github.com/infu) in [infu/ic-wire PR #1](https://github.com/infu/ic-wire/pull/1).
 - Declare typed evolving methods with `#[derive(Wire)]` on request and reply
   roots. Add optional fields to the original Rust declaration with stable IDs.
-  Typed encoders manage bounded temporary storage for field additions.
 - Derive nested record and tuple evolution through common containers. Validate
   new required record fields against the deployed request and reply directions.
 - Compare proposed method manifests against supported baselines in request and
@@ -18,13 +40,16 @@
 
 ### ⚠️ Breaking
 
-- Use the evolving message layout through the normal Rust codec and generated
-  client APIs. Every public message has a sparse root, including manually
-  projected messages. Rebuild positional callers and regenerate clients.
-- Mark a nested Serde layout with `#[wire(fixed)]` when its fields are positional.
-  The `derive` feature enables Rust macros. Schema tooling is a separate feature.
-- Match `Error::Incompatible` and the browser runtime's `'incompatible'` code
-  when handling unknown required cases or fields.
+- `#[derive(Wire)]` defaults to an extensible struct or tuple. Mark ordinary
+  Serde struct and tuple layouts with `#[wire(fixed)]` for schema projection.
+- When matching Wire errors exhaustively, handle `Incompatible` with the Rust
+  evolution feature and `'incompatible'` in generated TypeScript runtimes.
+
+### 🔧 Changed
+
+- Adopt Toko Tooling 0.46.7. `make deps-list` now lists product packages by default.
+- Share generated serialization code between sizing and Vec output to reduce
+  uncompressed Wasm size in applications that encode many distinct DTOs.
 
 ### 🧪 Testing
 
@@ -35,7 +60,7 @@
 
 ### 📝 Summary
 
-- Adopt the [Toko Studios Network Licence 1.1](LICENSE.md) for this release. Earlier grants remain in effect.
+- Adopt the [Toko Studios Network Licence 1.1](https://github.com/dragginzgame/ic-wire/blob/v0.30.2/LICENSE.md) for this release. Earlier grants remain in effect.
 - Update the development tooling to Toko Tooling 0.46.4 in both Cargo workspaces.
 
 ## [0.30.1] - 2026-11-24

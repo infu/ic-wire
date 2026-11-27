@@ -270,5 +270,4 @@ together when changing from the previous positional format.
 
 See the [repository](https://github.com/dragginzgame/ic-wire) for qualification,
 design and measured tradeoffs. Smaller Wasm in the sample workload does not imply
-universally faster encoding. Licensed under the included Toko Studios Network
-Licence 1.1; see `LICENSE.md` for the controlling terms.
+universally faster encoding. See the included `LICENSE.md` for the licence covering this copy.

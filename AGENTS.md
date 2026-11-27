@@ -68,3 +68,12 @@ No simulator dependency enters product Wire.
 The parent qualification workspace denies unsafe code for the narrowly expected
 Rust 2024 guest export attribute. The native instruction driver retains a local
 forbid. Product packages continue to forbid unsafe code.
+
+## Wire licence and contribution exception
+
+For work after v0.31.0 the maintainer approved Apache-2.0 for Wire's first-party
+product and an Apache-2.0 inbound CLA for external pull requests. Wire owns
+LICENSE.md, CONTRIBUTING.md and CLA.md. Keep these files outside the tooling
+snapshot during refreshes. Both workspaces inherit SPDX licence metadata and
+the two public packages ship byte-identical copies of the root licence.
+Vendored tooling and third-party components retain their suppliers' terms.

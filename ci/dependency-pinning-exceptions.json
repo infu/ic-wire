@@ -3,7 +3,7 @@
     "rule": "cargo-exact",
     "file": "Cargo.toml",
     "subject": "ic-wire-derive",
-    "value": "=0.30.2",
+    "value": "=0.31.1",
     "reason": "The derive generates calls to the matching Wire runtime's metadata API.",
     "evidence": "AGENTS.md#dependency-selection"
   }
