@@ -52,7 +52,7 @@ pub(super) fn measure_payload<T: Serialize + ?Sized>(
             budget,
             depth,
         },
-        Output::Count(0),
+        Count(0),
     )
     .map_err(|_| budget.error())
 }
@@ -132,7 +132,7 @@ pub(super) fn write_vec<T: Serialize + ?Sized>(
             budget,
             depth: 1,
         },
-        Output::Buffer {
+        Output {
             bytes: &mut bytes,
             limit: size,
         },
@@ -274,55 +274,62 @@ impl<const CHARGE_SCRATCH: bool> Flavor for BoundedSlice<'_, '_, CHARGE_SCRATCH>
 }
 
 // Allocation capacity is not admission: every write is capped at preflight size.
-enum Output<'a> {
-    Count(usize),
-    Buffer {
-        bytes: &'a mut Vec<u8>,
-        limit: usize,
-    },
+struct Output<'a> {
+    bytes: &'a mut Vec<u8>,
+    limit: usize,
 }
 
 impl Flavor for Output<'_> {
     type Output = usize;
 
     fn try_push(&mut self, byte: u8) -> postcard::Result<()> {
-        match self {
-            Self::Count(size) => {
-                *size = size
-                    .checked_add(1)
-                    .ok_or(postcard::Error::SerializeBufferFull)?
-            }
-            Self::Buffer { bytes, limit } => {
-                if bytes.len() >= *limit {
-                    return Err(postcard::Error::SerializeBufferFull);
-                }
-                bytes.push(byte);
-            }
+        if self.bytes.len() >= self.limit {
+            return Err(postcard::Error::SerializeBufferFull);
         }
+        self.bytes.push(byte);
         Ok(())
     }
 
     fn try_extend(&mut self, span: &[u8]) -> postcard::Result<()> {
-        match self {
-            Self::Count(size) => {
-                *size = size
-                    .checked_add(span.len())
-                    .ok_or(postcard::Error::SerializeBufferFull)?
-            }
-            Self::Buffer { bytes, limit } => {
-                if span.len() > *limit - bytes.len() {
-                    return Err(postcard::Error::SerializeBufferFull);
-                }
-                bytes.extend_from_slice(span);
-            }
+        // Postcard passes single-byte varint prefixes as spans.
+        if let [byte] = span {
+            return self.try_push(*byte);
         }
+        if span.len() > self.limit - self.bytes.len() {
+            return Err(postcard::Error::SerializeBufferFull);
+        }
+        self.bytes.extend_from_slice(span);
         Ok(())
     }
 
     fn finalize(self) -> postcard::Result<Self::Output> {
-        Ok(match self {
-            Self::Count(size) => size,
-            Self::Buffer { bytes, .. } => bytes.len(),
-        })
+        Ok(self.bytes.len())
+    }
+}
+
+// Count with checked arithmetic before reserving owned output.
+struct Count(usize);
+
+impl Flavor for Count {
+    type Output = usize;
+
+    fn try_push(&mut self, _: u8) -> postcard::Result<()> {
+        self.0 = self
+            .0
+            .checked_add(1)
+            .ok_or(postcard::Error::SerializeBufferFull)?;
+        Ok(())
+    }
+
+    fn try_extend(&mut self, span: &[u8]) -> postcard::Result<()> {
+        self.0 = self
+            .0
+            .checked_add(span.len())
+            .ok_or(postcard::Error::SerializeBufferFull)?;
+        Ok(())
+    }
+
+    fn finalize(self) -> postcard::Result<Self::Output> {
+        Ok(self.0)
     }
 }

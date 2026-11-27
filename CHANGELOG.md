@@ -15,6 +15,8 @@
 
 - Allow ordinary Serde crate paths, symmetric renames and borrow declarations on
   Wire-derived structs.
+- Reduce encode instructions with checked Postcard sizing, bounded Vec writes,
+  and a fast path for empty extension blocks.
 
 ### 🐛 Fixed
 

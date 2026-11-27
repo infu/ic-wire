@@ -96,6 +96,10 @@ impl<'a, S: Serializer> Serializer for Checked<'a, S> {
     }
 
     fn serialize_bytes(self, value: &[u8]) -> Result<Self::Ok, Self::Error> {
+        if value.is_empty() {
+            // An empty Postcard byte span consists only of its zero length.
+            return self.inner.serialize_u8(0);
+        }
         if !self.budget.charge_buffer(value.len()) {
             return Err(ser::Error::custom("payload allocation allowance exceeded"));
         }
