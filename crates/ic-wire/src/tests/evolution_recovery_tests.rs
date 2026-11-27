@@ -1,14 +1,13 @@
 //! Bounded optional recovery across explicit projected DTOs.
-#![cfg(feature = "evolution")]
 
-use ic_wire::{
+use crate::{
     Encoding, Error, LimitKind, Limits, List, TextRef,
     evolution::{
-        Extensions, OpaqueOpen, Recoverable, RecoveryContext, decode_projected,
-        encode_projected_into,
+        Extensions, OpaqueOpen, Recoverable, RecoveryContext, decode_value, encode_value_into,
     },
 };
 use serde::Deserialize;
+use std::vec::Vec;
 
 const LIMITS: Limits = Limits {
     bytes: 96,
@@ -49,7 +48,7 @@ fn known(open: OpaqueOpen<'_>, scope: &RecoveryContext<'_>) -> Result<Option<()>
 }
 
 fn decode_list_result(bytes: &[u8], limits: Limits) -> Result<Option<usize>, Error> {
-    decode_projected(
+    decode_value(
         bytes,
         Encoding::Payload,
         limits,
@@ -162,7 +161,7 @@ struct Nested<'a> {
 #[test]
 fn the_nearest_explicit_branch_recovers_without_marking_its_parent() {
     let bytes = [1, 6, 42, 1, 2, 10, 1, 2, 2];
-    let outcome = decode_projected(
+    let outcome = decode_value(
         &bytes,
         Encoding::Payload,
         LIMITS,
@@ -192,7 +191,7 @@ fn marks_cross_known_variant_payloads_and_scope_absence_is_distinct_from_unit() 
     // The outer branch holds tag 1 with a typed open variant payload. The
     // selected inner tag 5 is unfamiliar to this schema.
     let bytes = [1, 3, 3, 1, 10, 2];
-    let outcome = decode_projected(
+    let outcome = decode_value(
         &bytes,
         Encoding::Payload,
         LIMITS,
@@ -212,14 +211,14 @@ fn marks_cross_known_variant_payloads_and_scope_absence_is_distinct_from_unit() 
 
     let mut scratch = [];
     let mut output = Vec::new();
-    let written = encode_projected_into(&mut output, Encoding::Payload, LIMITS, |write| {
+    let written = encode_value_into(&mut output, Encoding::Payload, LIMITS, |write| {
         Recoverable::write(write, &(), &mut scratch)
     })
     .unwrap();
     assert_eq!(written, &[1, 0]);
     for (bytes, expected) in [(written, Some(())), (&[0], None)] {
         assert_eq!(
-            decode_projected(
+            decode_value(
                 bytes,
                 Encoding::Payload,
                 LIMITS,
@@ -229,14 +228,14 @@ fn marks_cross_known_variant_payloads_and_scope_absence_is_distinct_from_unit() 
         );
     }
     assert_eq!(
-        encode_projected_into(&mut output, Encoding::Payload, LIMITS, |_| {
+        encode_value_into(&mut output, Encoding::Payload, LIMITS, |_| {
             Ok(Recoverable::absent())
         }),
         Ok(&[0][..])
     );
 
     let mut scratch = [0; 2];
-    let written = encode_projected_into(&mut output, Encoding::Payload, LIMITS, |write| {
+    let written = encode_value_into(&mut output, Encoding::Payload, LIMITS, |write| {
         Recoverable::write(write, &(7_u32, true), &mut scratch)
     })
     .unwrap();
@@ -251,7 +250,7 @@ fn strict_scopes_finish_validation_before_reporting_incompatibility() {
         Err(Error::Incompatible)
     );
     assert_eq!(
-        decode_projected(
+        decode_value(
             &[10, 3, 1, 0],
             Encoding::Payload,
             LIMITS,
@@ -267,7 +266,7 @@ fn strict_scopes_finish_validation_before_reporting_incompatibility() {
     );
 
     assert_eq!(
-        decode_projected(
+        decode_value(
             &[1, 0],
             Encoding::Payload,
             LIMITS,
@@ -303,7 +302,7 @@ fn require_epoch(
 #[test]
 fn missing_required_extension_recovers_only_after_complete_validation() {
     let decode = |bytes: &[u8]| {
-        decode_projected(
+        decode_value(
             bytes,
             Encoding::Payload,
             LIMITS,
@@ -338,7 +337,7 @@ fn missing_required_extension_recovers_only_after_complete_validation() {
     }
 
     assert_eq!(
-        decode_projected(
+        decode_value(
             &[3, 3, 1, 1, 2],
             Encoding::Payload,
             LIMITS,

@@ -140,14 +140,13 @@ pub(super) fn emit(directory: &Path) -> Result<(), Box<dyn Error>> {
     write_client(&V2, &directory.join("nested-v2.ts"))?;
 
     let mut bytes = Vec::new();
-    let mut scratch = [0; 64];
-    V1.encode_request(&request_v1(), &mut bytes, &mut [])?;
+    V1.encode_request(&request_v1(), &mut bytes)?;
     std::fs::write(directory.join("nested-v1-request.bin"), &bytes)?;
-    V2.encode_request(&request_v2(), &mut bytes, &mut scratch)?;
+    V2.encode_request(&request_v2(), &mut bytes)?;
     std::fs::write(directory.join("nested-v2-request.bin"), &bytes)?;
-    V1.encode_reply(&reply_v1(), &mut bytes, &mut [])?;
+    V1.encode_reply(&reply_v1(), &mut bytes)?;
     std::fs::write(directory.join("nested-v1-reply.bin"), &bytes)?;
-    V2.encode_reply(&reply_v2(), &mut bytes, &mut scratch)?;
+    V2.encode_reply(&reply_v2(), &mut bytes)?;
     std::fs::write(directory.join("nested-v2-reply.bin"), &bytes)?;
     Ok(())
 }

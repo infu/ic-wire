@@ -1,11 +1,12 @@
 //! Independent byte vectors and encoding custody/admission boundaries.
 
-use ic_wire::LimitKind;
-use ic_wire::{
-    Direction, Encoding, Error, Limits, decode, encode, encode_into, encode_to_slice, encoded_len,
+use crate::{
+    Direction, Encoding, Error, LimitKind, Limits,
+    decode::decode,
+    encode::{encode, encode_into, encode_to_slice, encoded_len},
 };
 use serde::{Serialize, Serializer};
-use std::{cell::Cell, collections::BTreeMap};
+use std::{cell::Cell, collections::BTreeMap, vec, vec::Vec};
 
 fn limits() -> Limits {
     Limits {
@@ -379,7 +380,7 @@ fn zero_width_sequences_and_text_keep_reference_charges() {
 }
 
 #[test]
-fn package_guide_reply_allowances_cover_the_largest_revision() {
+fn fixed_record_allowances_cover_maximum_width_fields() {
     #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
     struct Reply {
         accepted: bool,
@@ -399,8 +400,5 @@ fn package_guide_reply_allowances_cover_the_largest_revision() {
     };
     let payload = encode(&value, Encoding::Payload, limits).unwrap();
     assert_eq!(payload.len(), bytes);
-    assert_eq!(
-        ic_wire::decode(&payload, Encoding::Payload, limits),
-        Ok(value)
-    );
+    assert_eq!(decode(&payload, Encoding::Payload, limits), Ok(value));
 }

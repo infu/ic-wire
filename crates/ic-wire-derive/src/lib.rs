@@ -14,6 +14,8 @@ use syn::{Data, DeriveInput, Fields, parse_macro_input};
 /// to require its presence. Tuple IDs are one-based optional slot positions.
 /// Every evolving struct has one trailing extension block. This derive does
 /// not implement or change the type's Serde traits.
+/// On an evolving struct, symmetric Serde field names also name Wire fields.
+/// Serde crate paths and field borrow declarations may accompany the derive.
 ///
 /// Use `#[wire(fixed)]` to describe an ordinary fixed Serde struct. Enums
 /// describe their closed, externally tagged Serde layout. These projections
@@ -69,7 +71,7 @@ fn fields(
     let mut extension = None;
     for (index, field) in fields.iter().enumerate() {
         let (ordinary, carrier) = extension_attribute(&field.attrs)?;
-        let (rename, adapter) = member_attributes(&ordinary, true, owner)?;
+        let (rename, adapter) = member_attributes(&ordinary, true, Some(owner))?;
         if carrier {
             if fixed {
                 return Err(syn::Error::new_spanned(
@@ -177,6 +179,7 @@ fn type_options(input: &DeriveInput, marker: Option<&str>) -> syn::Result<(syn::
     let mut owner: syn::Path = syn::parse_quote!(::ic_wire);
     let mut renamed = false;
     let mut marked = false;
+    let mut serde_crate = false;
     for attr in &input.attrs {
         if attr.path().is_ident("wire") {
             attr.parse_nested_meta(|meta| {
@@ -197,8 +200,17 @@ fn type_options(input: &DeriveInput, marker: Option<&str>) -> syn::Result<(syn::
                     None => meta.error("expected one wire(crate = \"dependency\")"),
                 })
             })?;
-        } else {
-            reject_attributes(std::slice::from_ref(attr))?;
+        } else if attr.path().is_ident("serde") {
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("crate") && !serde_crate {
+                    let value: syn::LitStr = meta.value()?.parse()?;
+                    let _: syn::Path = value.parse()?;
+                    serde_crate = true;
+                    Ok(())
+                } else {
+                    Err(meta.error("unsupported or duplicate Serde type attribute"))
+                }
+            })?;
         }
     }
     Ok((owner, marked))
@@ -228,7 +240,7 @@ fn expand(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         Data::Enum(data) => {
             let mut variants = Vec::new();
             for (id, variant) in data.variants.iter().enumerate() {
-                let (renamed_variant, _) = member_attributes(&variant.attrs, false, &owner)?;
+                let (renamed_variant, _) = member_attributes(&variant.attrs, false, None)?;
                 if variant.discriminant.is_some() {
                     return Err(syn::Error::new_spanned(
                         variant,
@@ -301,10 +313,10 @@ fn projection(
     }
 }
 
-fn member_attributes(
-    attrs: &[syn::Attribute],
+fn member_attributes<'a>(
+    attrs: impl IntoIterator<Item = &'a syn::Attribute>,
     allow_field: bool,
-    owner: &syn::Path,
+    adapter_owner: Option<&syn::Path>,
 ) -> syn::Result<(Option<String>, Option<Adapter>)> {
     let mut borrowed = false;
     let mut renamed = None;
@@ -316,6 +328,11 @@ fn member_attributes(
                     let name: syn::LitStr = meta.value()?.parse()?;
                     renamed = Some(name.value());
                 } else if meta.path.is_ident("with") && allow_field && bytes.is_none() {
+                    let Some(owner) = adapter_owner else {
+                        return Err(meta.error(
+                            "express Serde adapters on evolving records with a fixed Wire field type",
+                        ));
+                    };
                     let path: syn::LitStr = meta.value()?.parse()?;
                     let path = path.value();
                     let path = path.trim_start_matches("::");
@@ -355,7 +372,7 @@ fn member_attributes(
 }
 
 fn unnamed_attributes(attrs: &[syn::Attribute], owner: &syn::Path) -> syn::Result<Option<Adapter>> {
-    let (rename, bytes) = member_attributes(attrs, true, owner)?;
+    let (rename, bytes) = member_attributes(attrs, true, Some(owner))?;
     if rename.is_some() {
         return Err(syn::Error::new(
             proc_macro2::Span::call_site(),

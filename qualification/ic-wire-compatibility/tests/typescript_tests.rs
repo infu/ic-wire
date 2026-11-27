@@ -9,8 +9,10 @@ mod renamed_cases;
 mod scalar_cases;
 mod service_cases;
 mod standard_cases;
+mod support;
 mod validation_cases;
 
+use crate::support::{decode, encode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -21,7 +23,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use wire::typescript::{Method, PayloadLimits, SchemaLimits, SchemaRegistry, ValidatedRegistry};
-use wire::{Bytes, Direction, Encoding, Limits, List, Packed, decode, encode};
+use wire::{Bytes, Direction, Encoding, Limits, List, Packed};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, wire::typescript::Wire)]
 #[wire(crate = "wire")]
@@ -53,6 +55,31 @@ struct Chain {
 struct Shared {
     left: Chain,
     right: Chain,
+}
+
+// These cases qualify fixed fields within a genuine sparse message root.
+fn message_schema(core: Value) -> Value {
+    let mut schema = json!({"k":"extension-tuple","extensions":[]});
+    schema["items"] = Value::Array(vec![core]);
+    schema
+}
+
+fn grouped_messages(mut types: BTreeMap<String, Value>) -> BTreeMap<String, Value> {
+    let roots = types.keys().cloned().collect::<Vec<_>>();
+    for name in roots {
+        types.insert(
+            format!("Message{name}"),
+            message_schema(json!({"k":"ref","name":name})),
+        );
+    }
+    types
+}
+
+fn message_type<T: wire::typescript::Wire + ?Sized>(name: &str) -> ValidatedRegistry {
+    let schema = ValidatedRegistry::from_type::<T>(name, SchemaLimits::default()).unwrap();
+    let definitions = serde_json::from_str(&schema.metadata_json().unwrap()).unwrap();
+    ValidatedRegistry::from_metadata(&grouped_messages(definitions), SchemaLimits::default())
+        .unwrap()
 }
 
 fn limits() -> Limits {
@@ -131,6 +158,9 @@ fn typescript_exchanges_payloads_and_frames() {
         7, 1, 128, 1, 1, 9, 2, 170, 187, 4, 1, 0, 255, 255, 2, 2, 1,
     ]);
 
+    for literal in &mut literals {
+        literal.push(0);
+    }
     let mut cases = Vec::new();
     for (record, literal) in records.iter().zip(&literals) {
         let payload = encode(record, Encoding::Payload, limits()).unwrap();
@@ -184,8 +214,8 @@ fn typescript_exchanges_payloads_and_frames() {
     };
     let chain_bytes = encode(&chain, Encoding::Payload, policy).unwrap();
     let shared_bytes = encode(&shared, Encoding::Payload, policy).unwrap();
-    assert_eq!(chain_bytes, [1, 1, 128, 1, 0]);
-    assert_eq!(shared_bytes, [7, 0, 7, 0]);
+    assert_eq!(chain_bytes, [1, 1, 128, 1, 0, 0]);
+    assert_eq!(shared_bytes, [7, 0, 7, 0, 0]);
     let fixture = json!({"types":exported,"cases":cases,"chain":chain_bytes,"shared":shared_bytes,"policy":{"bytes":policy.bytes,"nodes":policy.nodes,"depth":policy.depth}});
     let browser_limits = PayloadLimits {
         bytes: policy.bytes as u64,
@@ -194,10 +224,13 @@ fn typescript_exchanges_payloads_and_frames() {
     };
     let mut fixture = fixture;
     fixture["typeAssertions"] = include_str!("typescript_contract.ts").into();
-    fixture["module"] = derived
+    let messages =
+        ValidatedRegistry::from_metadata(&grouped_messages(types), SchemaLimits::default())
+            .unwrap();
+    fixture["module"] = messages
         .payload_module(
             "recordCodec",
-            "Record",
+            "MessageRecord",
             "./runtime-adapter.ts",
             browser_limits,
             &Default::default(),
@@ -205,10 +238,10 @@ fn typescript_exchanges_payloads_and_frames() {
         )
         .unwrap()
         .into();
-    fixture["badModule"] = graph
+    fixture["badModule"] = messages
         .payload_module(
             "recordCodec",
-            "Record",
+            "MessageRecord",
             "./bad-runtime.ts",
             browser_limits,
             &Default::default(),
@@ -224,25 +257,25 @@ fn typescript_exchanges_payloads_and_frames() {
         Method {
             export: "roundtrip",
             id: 7,
-            request: "Record",
-            response: "Record",
+            request: "MessageRecord",
+            response: "MessageRecord",
             request_limits: framed_limits,
             response_limits: framed_limits,
         },
         Method {
             export: "highId",
             id: u64::MAX,
-            request: "Chain",
-            response: "Shared",
+            request: "MessageChain",
+            response: "MessageShared",
             request_limits: PayloadLimits {
-                bytes: 5,
-                nodes: 6,
-                depth: 4,
+                bytes: 6,
+                nodes: 7,
+                depth: 5,
             },
             response_limits: PayloadLimits {
-                bytes: 4,
-                nodes: 7,
-                depth: 3,
+                bytes: 5,
+                nodes: 8,
+                depth: 4,
             },
         },
     ];
@@ -250,7 +283,11 @@ fn typescript_exchanges_payloads_and_frames() {
     collection.register::<Record<u8, 3>>("Record").unwrap();
     collection.register::<Chain>("Chain").unwrap();
     collection.register::<Shared>("Shared").unwrap();
-    let collected = collection.finish().unwrap();
+    let definitions =
+        serde_json::from_str(&collection.finish().unwrap().metadata_json().unwrap()).unwrap();
+    let collected =
+        ValidatedRegistry::from_metadata(&grouped_messages(definitions), SchemaLimits::default())
+            .unwrap();
     fixture["frameModule"] = collected
         .method_module(
             &methods,
@@ -355,6 +392,7 @@ fn run_typescript(fixture: &Value, script: &str) -> Value {
         std::env::temp_dir().join(format!("ic-wire-interop-{}-{nonce}", std::process::id()));
     fs::create_dir(&directory).unwrap();
     fs::write(directory.join("package.json"), r#"{"type":"module"}"#).unwrap();
+    fs::write(directory.join("message.mjs"), include_str!("message.mjs")).unwrap();
     let runtime = directory.join("codec-runtime.ts");
     fs::write(&runtime, wire::typescript::RUNTIME).unwrap();
     if let Some(module) = fixture["module"].as_str() {

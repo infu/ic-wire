@@ -268,32 +268,50 @@ impl ValidatedRegistry {
         Ok(graph)
     }
 
-    #[cfg(feature = "evolution")]
-    fn validate_evolving_roots(&self, roots: &BTreeSet<String>) -> Result<(), GenerationError> {
+    fn evolving_root_nodes(&self, roots: &[usize]) -> Result<Vec<usize>, GenerationError> {
         if roots.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let mut checked_roots = vec![false; self.nodes.len()];
-        let mut pending = Vec::new();
-        for root in roots {
-            let mut id = self.root_index(root)?;
+        let mut evolving = Vec::new();
+        for &root in roots {
+            let mut id = self.roots[root];
             // Alias cycles have already been rejected. Share the walk across roots.
             while !core::mem::replace(&mut checked_roots[id], true) {
                 match &self.nodes[id] {
                     Node::Alias(item) => id = *item,
                     Node::Ref(root) => id = self.roots[*root],
-                    Node::ExtensionRecord { fields, extensions } => {
-                        pending.extend(fields.iter().map(|(_, child)| (*child, true)));
-                        pending.extend(extensions.iter().map(|entry| (entry.child, true)));
-                        break;
-                    }
-                    Node::ExtensionTuple { items, extensions } => {
-                        pending.extend(items.iter().map(|&item| (item, true)));
-                        pending.extend(extensions.iter().map(|entry| (entry.child, true)));
+                    Node::ExtensionRecord { .. } | Node::ExtensionTuple { .. } => {
+                        evolving.push(id);
                         break;
                     }
                     _ => return Err(GenerationError::Schema),
                 }
+            }
+        }
+        Ok(evolving)
+    }
+
+    fn validate_evolving_roots(&self, roots: &BTreeSet<String>) -> Result<(), GenerationError> {
+        if roots.is_empty() {
+            return Ok(());
+        }
+        let indices = roots
+            .iter()
+            .map(|root| self.root_index(root))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut pending = Vec::new();
+        for id in self.evolving_root_nodes(&indices)? {
+            match &self.nodes[id] {
+                Node::ExtensionRecord { fields, extensions } => {
+                    pending.extend(fields.iter().map(|(_, child)| (*child, true)));
+                    pending.extend(extensions.iter().map(|entry| (entry.child, true)));
+                }
+                Node::ExtensionTuple { items, extensions } => {
+                    pending.extend(items.iter().map(|&item| (item, true)));
+                    pending.extend(extensions.iter().map(|entry| (entry.child, true)));
+                }
+                _ => unreachable!("admitted evolving root"),
             }
         }
 

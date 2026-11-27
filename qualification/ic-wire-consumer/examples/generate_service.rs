@@ -2,11 +2,15 @@
 use std::{fs, path::PathBuf};
 use wire::typescript::{Method, PayloadLimits, SchemaLimits, ServiceMethod, ValidatedRegistry};
 
+#[path = "records/word.rs"]
+mod word;
+
 fn main() {
     let directory = PathBuf::from(std::env::args_os().nth(1).expect("output directory"));
-    let graph = ValidatedRegistry::from_type::<u32>("Word", SchemaLimits::default()).unwrap();
+    let graph =
+        ValidatedRegistry::from_type::<word::Word>("Word", SchemaLimits::default()).unwrap();
     let limits = PayloadLimits {
-        bytes: 5,
+        bytes: word::PAYLOAD_BYTES as u64,
         nodes: 4,
         depth: 3,
     };

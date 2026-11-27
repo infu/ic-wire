@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::io::{self, Read};
 use wire::{
     Direction, Encoding, Error, Limits, List, Packed, TextRef,
-    evolution::{self, Extensions, OpaqueOpen, ReadContext},
+    evolution::{self, Extensions, OpaqueOpen, Projected, ReadContext},
 };
 
 const LIMITS: Limits = Limits {
@@ -77,42 +77,49 @@ fn check_witness(bytes: &[u8]) -> Result<(), Error> {
         method: 7,
         direction: Direction::Request,
     };
-    evolution::decode_projected(bytes, encoding, LIMITS, |batch: Batch<'_>, ctx| {
-        assert_eq!(batch.suffix.as_str(), "tail ✅");
-        let groups = batch.groups.as_slice();
-        assert_eq!(groups.len(), 2);
-        ctx.nested(|group_list| {
-            for (group, (channel, sequence, first_id, states)) in groups.iter().zip([
-                (
-                    17,
-                    1_u64 << 60,
-                    120,
-                    [None, Some(State::Detail("steady Δ"))],
-                ),
-                (33, 257, 122, [Some(State::Idle), None]),
-            ]) {
-                assert_eq!((group.channel, group.sequence), (channel, sequence));
-                assert_eq!(group.rows.as_slice().len(), 2);
-                group_list.nested(|group_ctx| {
-                    group_ctx.nested(|row_list| {
-                        for (index, (row, expected)) in
-                            group.rows.as_slice().iter().zip(states).enumerate()
-                        {
-                            assert_eq!(row.id, first_id + index as u32);
-                            assert_eq!(row.words.as_slice(), &[i16::MIN, -1, i16::MAX]);
-                            let actual = row_list.nested(|row_ctx| project(row, row_ctx))?;
-                            assert_eq!(actual, expected);
-                            if let Some(State::Detail(message)) = actual {
-                                assert!(bytes.as_ptr_range().contains(&message.as_ptr()));
+    evolution::decode_projected(
+        bytes,
+        encoding,
+        LIMITS,
+        |root: Projected<'_, Batch<'_>>, ctx| {
+            root.extensions.visit(ctx, |_, _| Ok(()))?;
+            let batch = root.core;
+            assert_eq!(batch.suffix.as_str(), "tail ✅");
+            let groups = batch.groups.as_slice();
+            assert_eq!(groups.len(), 2);
+            ctx.child().nested(|group_list| {
+                for (group, (channel, sequence, first_id, states)) in groups.iter().zip([
+                    (
+                        17,
+                        1_u64 << 60,
+                        120,
+                        [None, Some(State::Detail("steady Δ"))],
+                    ),
+                    (33, 257, 122, [Some(State::Idle), None]),
+                ]) {
+                    assert_eq!((group.channel, group.sequence), (channel, sequence));
+                    assert_eq!(group.rows.as_slice().len(), 2);
+                    group_list.nested(|group_ctx| {
+                        group_ctx.nested(|row_list| {
+                            for (index, (row, expected)) in
+                                group.rows.as_slice().iter().zip(states).enumerate()
+                            {
+                                assert_eq!(row.id, first_id + index as u32);
+                                assert_eq!(row.words.as_slice(), &[i16::MIN, -1, i16::MAX]);
+                                let actual = row_list.nested(|row_ctx| project(row, row_ctx))?;
+                                assert_eq!(actual, expected);
+                                if let Some(State::Detail(message)) = actual {
+                                    assert!(bytes.as_ptr_range().contains(&message.as_ptr()));
+                                }
                             }
-                        }
-                        Ok(())
-                    })
-                })?;
-            }
-            Ok(())
-        })
-    })
+                            Ok(())
+                        })
+                    })?;
+                }
+                Ok(())
+            })
+        },
+    )
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

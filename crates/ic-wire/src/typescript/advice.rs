@@ -20,7 +20,7 @@ macro_rules! integer_list {
                     "Start with an ordinary list for mostly small values. Try Packed<",
                     $word,
                     ", N> for wide values or an IC instruction bottleneck. ",
-                    "Compare encoded_len on typical and worst-case inputs, preserve the field bound, ",
+                    "Compare message sizes on typical and worst-case inputs, preserve the field bound, ",
                     "and choose one layout for the schema."
                 )
             },

@@ -56,3 +56,5 @@ Each `numeric-*-ic` Cargo example builds an IC query as a Wasm cdylib. The
 `numeric-*` native examples run the same codecs and inputs with an instrumented
 allocator. The IC targets use Platform Runtime’s raw system calls. Use the
 measurement runner above to select the appropriate examples and profiles.
+The Wire rows compare list field representations inside the same sparse
+message root. Each measured payload includes its empty extension block.

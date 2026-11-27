@@ -1,4 +1,4 @@
-use super::run_typescript;
+use super::{grouped_messages, run_typescript};
 use serde_json::json;
 use std::collections::BTreeMap;
 use wire::typescript::{GenerationError, Method, PayloadLimits, SchemaLimits, ValidatedRegistry};
@@ -23,15 +23,18 @@ fn scalar_bounds_and_checks_survive_graph_export_and_generated_clients() {
         serde_json::from_str::<serde_json::Value>(&graph.metadata_json().unwrap()).unwrap(),
         json!(types)
     );
+    let graph =
+        ValidatedRegistry::from_metadata(&grouped_messages(types.clone()), SchemaLimits::default())
+            .unwrap();
     let policy = PayloadLimits {
         bytes: 16,
-        nodes: 2,
-        depth: 2,
+        nodes: 3,
+        depth: 3,
     };
     let module = graph
         .payload_module(
             "checked",
-            "Root",
+            "MessageRoot",
             "./runtime-adapter.ts",
             policy,
             &BTreeMap::new(),
@@ -43,8 +46,8 @@ fn scalar_bounds_and_checks_survive_graph_export_and_generated_clients() {
             &[Method {
                 export: "method",
                 id: 7,
-                request: "Root",
-                response: "Root",
+                request: "MessageRoot",
+                response: "MessageRoot",
                 request_limits: policy,
                 response_limits: policy,
             }],

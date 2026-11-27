@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.32.0] - Unreleased
+
+### ⚠️ Breaking
+
+- Use a sparse root for every public Rust and TypeScript message, including
+  explicit projections. Rebuild positional callers and regenerate clients.
+- Use the normal typed encoding API for evolving messages. It manages bounded
+  temporary extension storage, including when writing to a caller's slice.
+- Enable `derive` for Rust macros and `typescript` for schema tooling.
+  Match `Error::Incompatible` for unknown required cases or fields.
+
+### 🔧 Changed
+
+- Allow ordinary Serde crate paths, symmetric renames and borrow declarations on
+  Wire-derived structs.
+
 ## [0.31.1] - 2026-11-26
 
 ### 🔧 Changed

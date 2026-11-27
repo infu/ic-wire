@@ -5,7 +5,9 @@ mod slice_rows;
 use serde::{Deserialize, Serialize};
 use wire::{
     BytesRef, Direction, Encoding, Error, Limits, List, Packed, TextRef,
-    evolution::{self, Extensions, ExtensionsWriter, OpaqueOpen, ReadContext, WriteContext},
+    evolution::{
+        self, Extensions, ExtensionsWriter, OpaqueOpen, Projected, ReadContext, WriteContext,
+    },
 };
 
 pub(super) const METHOD: u64 = 7;
@@ -311,7 +313,7 @@ pub(super) fn encode_batch<const REV: u8>(
 ) -> Result<(), Error> {
     let mut scratch = prepare_scratch::<REV>(count, dense)?;
     evolution::encode_projected_into(output, REQUEST, limits, |ctx| {
-        prepare_batch::<REV>(ctx, &mut scratch, count, dense)
+        prepare_batch::<REV>(&ctx.child(), &mut scratch, count, dense).map(Projected::empty)
     })?;
     Ok(())
 }
@@ -433,9 +435,11 @@ pub(super) fn decode<const REV: u8>(
         bytes,
         REQUEST,
         limits,
-        |mut batch: Decoded<'_, REV>, ctx| {
+        |root: Projected<'_, Decoded<'_, REV>>, ctx| {
+            root.extensions.visit(ctx, |_, _| Ok(()))?;
+            let mut batch = root.core;
             let mut missing = false;
-            ctx.nested(|group_list| {
+            ctx.child().nested(|group_list| {
                 for group in batch.groups.as_mut_slice() {
                     group_list.nested(|group_ctx| {
                         group_ctx.nested(|row_list| {

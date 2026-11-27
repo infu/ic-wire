@@ -1,4 +1,4 @@
-//! Sparse extension fields and open variants for the qualification experiment.
+//! Sparse extension fields, open variants and bounded message projections.
 //!
 //! The default `Wire` derive stages and projects typed extension records and
 //! tuples through supported containers. Applications can also project open
@@ -8,8 +8,8 @@
 mod declaration;
 #[doc(hidden)]
 pub use declaration::__private;
-mod method;
-#[cfg(any(feature = "derive", feature = "evolution-derive"))]
+pub(crate) mod method;
+#[cfg(feature = "derive")]
 pub use declaration::Evolve;
 #[cfg(feature = "typescript")]
 pub use declaration::{ExtensionLayout, OpenLayout, SchemaFields};
@@ -17,7 +17,7 @@ pub use declaration::{ExtensionSlot, OpenSlot, RecoverSlot};
 pub use method::{Evolving, Method};
 #[doc(hidden)]
 pub mod inline;
-#[cfg(any(feature = "derive", feature = "evolution-derive"))]
+#[cfg(feature = "derive")]
 #[doc(hidden)]
 pub use serde as __serde;
 
@@ -36,16 +36,58 @@ use serde_bytes::Bytes;
 mod recovery;
 pub use recovery::{Recoverable, RecoveryContext};
 
+/// A manually projected message with a positional core and a sparse root block.
+pub struct Projected<'a, T> {
+    /// Positional fields in their declared order.
+    pub core: T,
+    /// Staged sparse fields at the root of the message.
+    pub extensions: Extensions<'a>,
+}
+
+impl<'a, T> Projected<'a, T> {
+    /// Assemble a message with its staged root fields.
+    pub const fn new(core: T, extensions: Extensions<'a>) -> Self {
+        Self { core, extensions }
+    }
+
+    /// Assemble a message whose writer supplies no root extensions.
+    pub const fn empty(core: T) -> Self {
+        Self::new(core, Extensions::empty())
+    }
+}
+
+impl<T: Serialize> Serialize for Projected<'_, T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        (&self.core, self.extensions).serialize(serializer)
+    }
+}
+
+impl<'de: 'a, 'a, T: Deserialize<'de>> Deserialize<'de> for Projected<'a, T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (core, extensions) = <(T, Extensions<'a>)>::deserialize(deserializer)?;
+        Ok(Self::new(core, extensions))
+    }
+}
+
 /// Decode the outer Serde DTO and project its envelopes under one budget.
 ///
 /// The application owns the projection, including required-field checks and
-/// calls to visit the envelopes it wants to validate. Keep custom Serde and
-/// application work bounded independently as with ordinary Wire decoding.
+/// visiting the root extension block and any nested envelopes. Keep custom
+/// Serde and application work bounded independently.
 ///
 /// # Errors
 /// Returns an error from frame admission, DTO decoding, projection, or any
 /// refused operation even if the application ignores that refusal.
 pub fn decode_projected<'de, T: Deserialize<'de>, R>(
+    input: &'de [u8],
+    encoding: Encoding,
+    limits: Limits,
+    project: impl FnOnce(Projected<'de, T>, &ReadContext<'_>) -> Result<R, Error>,
+) -> Result<R, Error> {
+    decode_value(input, encoding, limits, project)
+}
+
+pub(crate) fn decode_value<'de, T: Deserialize<'de>, R>(
     input: &'de [u8],
     encoding: Encoding,
     limits: Limits,
@@ -74,11 +116,33 @@ pub fn decode_projected<'de, T: Deserialize<'de>, R>(
 /// # Errors
 /// Clears the output on any failure. A failed preparation may modify its own
 /// scratch storage. Custom serializers must agree on their size across passes.
-pub fn encode_projected_into<T: Serialize>(
+pub fn encode_projected_into<'out, 'value, T: Serialize>(
+    output: &'out mut Vec<u8>,
+    encoding: Encoding,
+    limits: Limits,
+    prepare: impl FnOnce(&WriteContext<'_>) -> Result<Projected<'value, T>, Error>,
+) -> Result<&'out [u8], Error> {
+    encode_value_into(output, encoding, limits, prepare)
+}
+
+pub(crate) fn encode_value_into<T: Serialize>(
     output: &mut Vec<u8>,
     encoding: Encoding,
     limits: Limits,
     prepare: impl FnOnce(&WriteContext<'_>) -> Result<T, Error>,
+) -> Result<&[u8], Error> {
+    encode_value_into_with(output, encoding, limits, |output, header, context| {
+        let value = prepare(context);
+        context.budget.check()?;
+        write_value_into(output, header, context, &value?)
+    })
+}
+
+fn encode_value_into_with(
+    output: &mut Vec<u8>,
+    encoding: Encoding,
+    limits: Limits,
+    write: impl FnOnce(&mut Vec<u8>, Option<[u8; HEADER_BYTES]>, &WriteContext<'_>) -> Result<(), Error>,
 ) -> Result<&[u8], Error> {
     output.clear();
     let header = encode::frame_header(encoding);
@@ -91,24 +155,46 @@ pub fn encode_projected_into<T: Serialize>(
         depth: 1,
         byte_limit: limits.bytes,
     };
-    let dto = prepare(&context);
-    budget.check()?;
-    let dto = dto?;
-    let size = encode::measure_payload(&dto, &budget, 1)?;
-    budget.check()?;
-    if size > limits.bytes {
-        return Err(Error::Limit(LimitKind::Bytes));
-    }
-    let written = encode::write_vec(&dto, &budget, header, size + prefix, output);
-    if let Err(error) = budget.check().and(written) {
+    let result = write(output, header, &context);
+    if let Err(error) = budget.check().and(result) {
         output.clear();
         return Err(error);
     }
-    if output.len() != size + prefix {
-        output.clear();
+    Ok(output)
+}
+
+fn write_value_into<T: Serialize>(
+    output: &mut Vec<u8>,
+    header: Option<[u8; HEADER_BYTES]>,
+    context: &WriteContext<'_>,
+    value: &T,
+) -> Result<(), Error> {
+    let budget = context.budget;
+    let size = encode::measure_payload(value, budget, 1)?;
+    budget.check()?;
+    if size > context.byte_limit {
+        return Err(Error::Limit(LimitKind::Bytes));
+    }
+    let prefix = if header.is_some() { HEADER_BYTES } else { 0 };
+    let len = size + prefix;
+    encode::write_vec(value, budget, header, len, output)?;
+    if output.len() != len {
         return Err(Error::Malformed);
     }
-    Ok(output)
+    Ok(())
+}
+
+/// Measure an already projected message, including its root block and any frame header.
+/// Preparation of the projected fields uses the caller's staging allowance.
+///
+/// # Errors
+/// Returns a sizing, serialization or allowance error.
+pub fn projected_len<T: Serialize>(
+    value: &Projected<'_, T>,
+    encoding: Encoding,
+    limits: Limits,
+) -> Result<usize, Error> {
+    encode::encoded_len(value, encoding, limits)
 }
 
 /// Prepare envelopes and encode the DTO once into caller-owned output.
@@ -121,17 +207,26 @@ pub fn encode_projected_into<T: Serialize>(
 /// Returns a preparation, serialization or allowance error. A short
 /// destination returns `Limit(Output)`. A failed operation may modify the
 /// caller's output and scratch.
-pub fn encode_projected_to_slice<T: Serialize>(
+pub fn encode_projected_to_slice<'out, 'value, T: Serialize>(
+    output: &'out mut [u8],
+    encoding: Encoding,
+    limits: Limits,
+    prepare: impl FnOnce(&WriteContext<'_>) -> Result<Projected<'value, T>, Error>,
+) -> Result<&'out [u8], Error> {
+    encode_value_to_slice(output, encoding, limits, prepare)
+}
+
+pub(crate) fn encode_value_to_slice<T: Serialize>(
     output: &mut [u8],
     encoding: Encoding,
     limits: Limits,
     prepare: impl FnOnce(&WriteContext<'_>) -> Result<T, Error>,
 ) -> Result<&[u8], Error> {
-    encode_projected_to_slice_with(output, encoding, limits, |destination| {
+    encode_value_to_slice_with(output, encoding, limits, |mut destination| {
         let context = destination.context();
         let dto = prepare(&context);
         context.budget.check()?;
-        destination.write(&dto?)
+        destination.write_value(&dto?)
     })
 }
 
@@ -147,6 +242,15 @@ pub fn encode_projected_to_slice<T: Serialize>(
 /// one completed write. A failed callback or serialization may modify the
 /// caller's output and scratch.
 pub fn encode_projected_to_slice_with(
+    output: &mut [u8],
+    encoding: Encoding,
+    limits: Limits,
+    write: impl FnOnce(ProjectedOutput<'_>) -> Result<(), Error>,
+) -> Result<&[u8], Error> {
+    encode_value_to_slice_with(output, encoding, limits, write)
+}
+
+pub(crate) fn encode_value_to_slice_with(
     output: &mut [u8],
     encoding: Encoding,
     limits: Limits,
@@ -210,7 +314,11 @@ impl<'scope> ProjectedOutput<'scope> {
     /// # Errors
     /// Returns a serialization or allowance error. The destination's bytes
     /// are available only from the successful outer operation.
-    pub fn write<T: Serialize + ?Sized>(self, value: &T) -> Result<(), Error> {
+    pub fn write<T: Serialize>(mut self, value: &Projected<'_, T>) -> Result<(), Error> {
+        self.write_value(value)
+    }
+
+    pub(crate) fn write_value<T: Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Error> {
         let size = encode::write_bounded_slice::<T, false>(
             value,
             self.context.budget,
@@ -319,7 +427,7 @@ impl WriteContext<'_> {
     ) -> Result<usize, Error> {
         let byte_limit = self.byte_limit.min(u32::MAX as usize);
         let capacity_kind = if scratch.len() < byte_limit {
-            LimitKind::Output
+            LimitKind::Scratch
         } else {
             LimitKind::Bytes
         };
@@ -577,7 +685,7 @@ impl<'a> ExtensionsWriter<'a> {
         let available = self
             .output
             .get_mut(body_at..)
-            .ok_or_else(|| leaf.budget.refuse_with(LimitKind::Output))?;
+            .ok_or_else(|| leaf.budget.refuse_with(LimitKind::Scratch))?;
         if !leaf.budget.charge_buffer(min_prefix) {
             return Err(leaf.budget.error());
         }
@@ -614,7 +722,7 @@ impl<'a> ExtensionsWriter<'a> {
                 .filter(|end| *end <= bound)
                 .ok_or_else(|| budget.refuse_with(LimitKind::Bytes))?;
             if end > self.output.len() {
-                return Err(budget.refuse_with(LimitKind::Output));
+                return Err(budget.refuse_with(LimitKind::Scratch));
             }
             if !budget.charge_buffer(extra) {
                 return Err(budget.error());

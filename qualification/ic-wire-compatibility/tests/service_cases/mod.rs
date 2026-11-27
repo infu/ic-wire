@@ -1,4 +1,4 @@
-use super::run_typescript;
+use super::{message_schema, run_typescript};
 use serde_json::json;
 use wire::typescript::{
     GenerationError, Method, PayloadLimits, SchemaLimits, ServiceMethod, ValidatedRegistry,
@@ -9,19 +9,19 @@ fn graph(output_bytes: usize, write_method: bool) -> ValidatedRegistry {
         &[
             (
                 "Request".into(),
-                if write_method {
+                message_schema(if write_method {
                     json!({"k":"u","bits":8})
                 } else {
                     json!({"k":"text"})
-                },
+                }),
             ),
             (
                 "Response".into(),
-                if write_method {
+                message_schema(if write_method {
                     json!({"k":"result","ok":{"k":"u","bits":8},"err":{"k":"bool"}})
                 } else {
                     json!({"k":"result","ok":{"k":"bool"},"err":{"k":"u","bits":8}})
-                },
+                }),
             ),
         ]
         .into(),

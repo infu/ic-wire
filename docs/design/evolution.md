@@ -1,6 +1,6 @@
 # Schema evolution
 
-The experimental sparse format allows optional fields and open variant cases to
+The sparse message format allows optional fields and open variant cases to
 evolve across independent client and service upgrades. Every value is encoded
 with Serde/Postcard. The format adds local numeric IDs and byte extents at
 the sites that declare them. Schemas, names and type descriptions travel through
@@ -9,8 +9,8 @@ negotiation or an extra round trip.
 
 ## Declare a method that can evolve
 
-Enable `evolution-derive` for the Rust derive and codec. Enable `derive` and
-`api-manifest` where you generate TypeScript bindings and method manifests.
+Enable `derive` for the Rust macros. Enable `api-manifest` where you also
+generate TypeScript bindings and method manifests.
 The Rust-only feature graph omits the schema runtime and JSON dependency.
 
 Use `#[derive(Wire)]` on the request and reply types from the first release.
@@ -37,7 +37,7 @@ const GET_POST: Method<GetPost, GetPostReply> = Method::new("get_post", LIMITS, 
 
 fn reply(frame: &[u8], output: &mut Vec<u8>) -> Result<(), Error> {
     let request = GET_POST.decode_request(frame)?;
-    GET_POST.encode_reply(&GetPostReply { found: request.post_id == 42 }, output, &mut [])
+    GET_POST.encode_reply(&GetPostReply { found: request.post_id == 42 }, output)
 }
 ```
 
@@ -65,9 +65,8 @@ when it compares the new manifest against the published one. Use a tuple
 struct for positional roots and append optional tagged elements using their
 one-based positions.
 
-For each encode, pass reusable scratch storage large enough for the present
-extension entries, including their IDs and lengths. Pass an empty slice when
-all additions are absent. For generated clients, register the same typed method
+Typed encoders manage scratch for present entries, including their IDs and
+lengths. For generated clients, register the same typed method
 with `SchemaRegistry::register_evolving_method`. Give each direction a schema
 alias and a browser `PayloadLimits` value. The returned descriptor can produce
 a TypeScript codec and an upgrade manifest.
@@ -111,40 +110,12 @@ around the entire list also bypasses the temporary sequence views used by
 automatic projection. Use explicit projection for boxed evolving graphs,
 open variants and bounded branch recovery.
 
-## Export a typed canister handler
-
-The Platform Runtime SDK integration provides `wire_query` and `wire_update`
-under its `entrypoint-macros` feature. Annotate the typed handler and configure
-its limits, reply scratch capacity, guard and error callback.
-
-```rust,ignore
-use ic_platform_runtime::wire_query;
-
-#[wire_query(
-    limits = LIMITS,
-    scratch_bytes = 16,
-    guard = permit,
-    on_error = fail,
-    descriptor = GET_POST,
-)]
-pub fn get_post(request: GetPost) -> GetPostReply {
-    GetPostReply { found: request.post_id == 42 }
-}
-```
-
-The SDK reads the argument size before copying, calls the typed Wire decoder,
-passes the owned request to the handler and encodes the reply once. The `GET_POST`
-descriptor derives its name and types from this method and can be passed to
-`SchemaRegistry::register_evolving_method` in the host exporter. Use an update
-attribute for a synchronous or async update handler.
-
 ## Project nested extensions and open variants
 
 ```rust
 use ic_wire::{
     Encoding, Error, Limits, TextRef,
-    evolution::{Evolve, ExtensionSlot, OpenSlot, decode_projected, encode_projected_into},
-    typescript::Wire,
+    evolution::{Evolve, ExtensionSlot, OpenSlot, Projected, decode_projected, encode_projected_into},
 };
 use serde::{Deserialize, Serialize};
 
@@ -164,14 +135,11 @@ enum State {
     Progress(u16),
 }
 
-#[derive(Serialize, Deserialize, Wire)]
+#[derive(Serialize, Deserialize)]
 struct Event<'a> {
     sequence: u64,
     #[serde(borrow)]
     state: OpenSlot<'a, State>,
-    #[serde(borrow)]
-    #[wire(extensions)]
-    additions: ExtensionSlot<'a, Additions<'a>>,
 }
 
 fn example(limits: Limits) -> Result<(), Error> {
@@ -184,19 +152,20 @@ fn example(limits: Limits) -> Result<(), Error> {
         seen: Some(()),
     };
     encode_projected_into(&mut output, Encoding::Payload, limits, |ctx| {
-        Ok(Event {
+        let core = Event {
             sequence: 42,
             state: State::encode_open(Some(&State::Progress(25)), ctx, &mut state_bytes)?,
-            additions: additions.encode_extensions(ctx, &mut extension_bytes)?,
-        })
+        };
+        let block = additions.encode_extensions(ctx, &mut extension_bytes)?;
+        Ok(Projected::new(core, block.into_raw()))
     })?;
 
     let (sequence, state, additions) =
-        decode_projected(&output, Encoding::Payload, limits, |event: Event<'_>, ctx| {
+        decode_projected(&output, Encoding::Payload, limits, |event: Projected<'_, Event<'_>>, ctx| {
             Ok((
-                event.sequence,
-                State::decode_open(event.state, ctx)?,
-                Additions::decode_extensions(event.additions, ctx)?,
+                event.core.sequence,
+                State::decode_open(event.core.state, ctx)?,
+                Additions::decode_extensions(ExtensionSlot::from_raw(event.extensions), ctx)?,
             ))
         })?;
     assert_eq!(sequence, 42);
@@ -215,7 +184,7 @@ breaks callers built against an earlier schema. An optional unit field preserves
 the distinction between absence and a present zero-byte body.
 
 The extension and open slots work inside nested Serde DTOs. A projection walks
-the DTO, calls the appropriate typed helpers, and advances the shared context
+the DTO, visits its required root block and calls the appropriate typed helpers, and advances the shared context
 into nested values with `nested`. Known extension and case bodies use that
 same operation meter. Include typed custom Serde work and any allocations made
 by the application projection in the consumer's limits. Capture original
@@ -283,7 +252,7 @@ complete frame are separate borrows in either API.
 
 For a large list, `encode_projected_to_slice_with` also supports staging one
 row at a time. Its callback receives a one-shot output. Borrow the shared
-meter with `output.context()` and serialize the DTO with `output.write(&dto)`.
+meter with `output.context()` and write the message with `output.write(&Projected::new(core, fields))`.
 The DTO can borrow that context while a custom Serde sequence stages and
 emits each row, reusing a bounded scratch slice. Return only after the
 complete DTO has been written. Postcard still owns the field representations
@@ -393,10 +362,9 @@ traversal, memory and instruction allowances separately.
 - An open case uses a u32 header whose upper bits carry the stable tag and
   whose low bit indicates a following nonempty byte span. Header zero is
   absence for an optional slot. A required slot treats zero as malformed.
-- Store application scratch separately from the final output. A typed body
-  serializes in one pass into bounded caller scratch. The final Vec still
-  receives a top-level admission pass before output allocation. The low-level
-  tail helpers return disjoint committed bytes and unused mutable scratch.
+- Explicit projections use scratch separate from the final output. The tail
+  helpers return disjoint committed bytes and unused mutable scratch. Owned
+  encoding sizes the complete projected value before reserving output.
 - Ordinary fixed tuples keep their arity. An explicitly extensible tuple
   can append optional slots through its final sparse block. General Candid
   type promotion, higher-order service values and negotiation are outside

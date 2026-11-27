@@ -8,15 +8,15 @@
   "schemas":{
     "Receipt":{"k":"ref","name":"Wire_Receipt_4f767a9e1cdeb830"},
     "Upload":{"k":"ref","name":"Wire_Upload_68dcb7e404119c4d"},
-    "Wire_Receipt_4f767a9e1cdeb830":{"k":"record","fields":[
+    "Wire_Receipt_4f767a9e1cdeb830":{"k":"extension-record","fields":[
       {"name":"revision","value":{"k":"ref","name":"Wire_u64_4d35d3193e8d66f2"}},
-      {"name":"accepted","value":{"k":"ref","name":"Wire_bool_cd2fd49bc6b014bd"}}],"fixed":true},
-    "Wire_Upload_68dcb7e404119c4d":{"k":"record","fields":[
+      {"name":"accepted","value":{"k":"ref","name":"Wire_bool_cd2fd49bc6b014bd"}}],"extensions":[],"projected":true},
+    "Wire_Upload_68dcb7e404119c4d":{"k":"extension-record","fields":[
       {"name":"revision","value":{"k":"ref","name":"Wire_u64_4d35d3193e8d66f2"}},
       {"name":"key","value":{"k":"ref","name":"Wire_Text_18ded961d02c6d60"}},
       {"name":"content","value":{"k":"ref","name":"Wire_Bytes_f160e9c6a3b95196"}},
       {"name":"samples","value":{"k":"ref","name":"Wire_Packed_85633bd4f66683f1"}},
-      {"name":"tags","value":{"k":"ref","name":"Wire_List_994c076397845e58"}}],"fixed":true},
+      {"name":"tags","value":{"k":"ref","name":"Wire_List_994c076397845e58"}}],"extensions":[],"projected":true},
     "Wire_Bytes_f160e9c6a3b95196":{"k":"bytes","max":1024},
     "Wire_List_994c076397845e58":{"k":"list","max":8,"item":{"k":"ref","name":"Wire_u16_4d24d3193e7ef3bf"}},
     "Wire_Packed_85633bd4f66683f1":{"k":"packed","max":64,"word":"i16"},

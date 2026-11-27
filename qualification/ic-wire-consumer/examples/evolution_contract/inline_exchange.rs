@@ -83,7 +83,6 @@ fn filters() -> List<Filter, 2> {
 
 fn frames(directory: &Path) -> Result<(), Box<dyn Error>> {
     let mut output = Vec::new();
-    let mut scratch = [0; 32];
 
     METHOD_V1.encode_request(
         &RequestV1 {
@@ -91,10 +90,9 @@ fn frames(directory: &Path) -> Result<(), Box<dyn Error>> {
             filters: filters(),
         },
         &mut output,
-        &mut [],
     )?;
     std::fs::write(directory.join("inline-v1-request.bin"), &output)?;
-    METHOD_V1.encode_reply(&ReplyV1(42, true), &mut output, &mut [])?;
+    METHOD_V1.encode_reply(&ReplyV1(42, true), &mut output)?;
     std::fs::write(directory.join("inline-v1-reply.bin"), &output)?;
 
     METHOD_V2.encode_request(
@@ -104,10 +102,9 @@ fn frames(directory: &Path) -> Result<(), Box<dyn Error>> {
             include_count: Some(false),
         },
         &mut output,
-        &mut scratch,
     )?;
     std::fs::write(directory.join("inline-v2-request.bin"), &output)?;
-    METHOD_V2.encode_reply(&ReplyV2(42, true, Some(false)), &mut output, &mut scratch)?;
+    METHOD_V2.encode_reply(&ReplyV2(42, true, Some(false)), &mut output)?;
     std::fs::write(directory.join("inline-v2-reply.bin"), &output)?;
 
     let method = method_v3();
@@ -119,14 +116,9 @@ fn frames(directory: &Path) -> Result<(), Box<dyn Error>> {
             audience: Some(TextRef::new("team Δ")?),
         },
         &mut output,
-        &mut scratch,
     )?;
     std::fs::write(directory.join("inline-v3-request.bin"), &output)?;
-    method.encode_reply(
-        &ReplyV3(42, true, Some(false), Some(())),
-        &mut output,
-        &mut scratch,
-    )?;
+    method.encode_reply(&ReplyV3(42, true, Some(false), Some(())), &mut output)?;
     std::fs::write(directory.join("inline-v3-reply.bin"), &output)?;
     Ok(())
 }
@@ -170,7 +162,7 @@ pub(super) fn emit(directory: &Path) -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wire::{Error, LimitKind};
+    use wire::Error;
 
     #[test]
     fn empty_block_is_written_in_version_one_and_new_members_default_to_absence() {
@@ -182,7 +174,6 @@ mod tests {
                     filters: filters(),
                 },
                 &mut output,
-                &mut [],
             )
             .unwrap();
         assert_eq!(&output[11..], &[42, 2, 1, 4, 0, 9, 0]);
@@ -201,7 +192,7 @@ mod tests {
         );
 
         METHOD_V1
-            .encode_reply(&ReplyV1(42, true), &mut output, &mut [])
+            .encode_reply(&ReplyV1(42, true), &mut output)
             .unwrap();
         assert_eq!(&output[11..], &[42, 1, 0]);
         assert_eq!(
@@ -219,13 +210,8 @@ mod tests {
     fn old_readers_skip_new_bodies_but_validate_the_extension_block() {
         let method = method_v3();
         let mut output = Vec::new();
-        let mut scratch = [0; 32];
         method
-            .encode_reply(
-                &ReplyV3(42, true, Some(false), Some(())),
-                &mut output,
-                &mut scratch,
-            )
+            .encode_reply(&ReplyV3(42, true, Some(false), Some(())), &mut output)
             .unwrap();
         assert_eq!(&output[11..], &[42, 1, 5, 3, 1, 0, 4, 0]);
         assert_eq!(METHOD_V1.decode_reply(&output).unwrap(), ReplyV1(42, true));
@@ -242,11 +228,10 @@ mod tests {
         assert_eq!(METHOD_V2.decode_reply(&output), Err(Error::Malformed));
         output[17] = 3;
         assert_eq!(METHOD_V1.decode_reply(&output), Err(Error::Malformed));
-        assert_eq!(
-            method.encode_reply(&ReplyV3(42, true, Some(false), None), &mut output, &mut []),
-            Err(Error::Limit(LimitKind::Output))
-        );
-        assert!(output.is_empty());
+        method
+            .encode_reply(&ReplyV3(42, true, Some(false), None), &mut output)
+            .unwrap();
+        assert_eq!(&output[11..], &[42, 1, 3, 3, 1, 0]);
     }
 
     pub(crate) fn check_clients(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {

@@ -1,15 +1,13 @@
 //! A single ID declaration drives the codec and generated client metadata.
-#![cfg(all(
-    feature = "evolution",
-    any(feature = "derive", feature = "evolution-derive")
-))]
+#![cfg(feature = "derive")]
 
-#[cfg(feature = "derive")]
+#[cfg(feature = "typescript")]
 use ic_wire::typescript::{ValidatedRegistry, Wire};
 use ic_wire::{
     Encoding, Error, Limits, TextRef,
     evolution::{
-        Evolve, ExtensionSlot, OpenSlot, RecoverSlot, decode_projected, encode_projected_into,
+        Evolve, ExtensionSlot, OpenSlot, Projected, ReadContext, RecoverSlot, decode_projected,
+        encode_projected_into,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -49,32 +47,37 @@ enum State<T> {
 }
 
 #[derive(Serialize, Deserialize)]
-#[cfg_attr(feature = "derive", derive(Wire))]
+#[cfg_attr(feature = "typescript", derive(Wire))]
 struct NewPacket<'a> {
     id: u8,
     #[serde(borrow)]
     state: OpenSlot<'a, State<u16>>,
     suffix: u8,
     #[serde(borrow)]
-    #[cfg_attr(feature = "derive", wire(extensions))]
+    #[cfg_attr(feature = "typescript", wire(extensions))]
     extension: ExtensionSlot<'a, Fields<'a>>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[cfg_attr(feature = "derive", derive(Wire))]
-struct OldPacket<'a> {
-    id: u8,
-    #[serde(borrow)]
-    state: OpenSlot<'a, OldState>,
-    suffix: u8,
-    #[serde(borrow)]
-    #[cfg_attr(feature = "derive", wire(extensions))]
-    extension: ExtensionSlot<'a, OldFields>,
+type PacketCore<'a, State> = (u8, OpenSlot<'a, State>, u8);
+
+impl<'a> NewPacket<'a> {
+    fn into_root(self) -> Projected<'a, PacketCore<'a, State<u16>>> {
+        Projected::new(
+            (self.id, self.state, self.suffix),
+            self.extension.into_raw(),
+        )
+    }
+}
+
+fn project_core<T>(root: Projected<'_, T>, ctx: &ReadContext<'_>) -> Result<T, Error> {
+    root.extensions.visit(ctx, |_, _| Ok(()))?;
+
+    Ok(root.core)
 }
 
 #[derive(Serialize, Deserialize)]
-#[cfg_attr(feature = "derive", derive(Wire))]
-#[cfg_attr(feature = "derive", wire(fixed))]
+#[cfg_attr(feature = "typescript", derive(Wire))]
+#[cfg_attr(feature = "typescript", wire(fixed))]
 struct NewBranch<'a> {
     #[serde(borrow)]
     state: OpenSlot<'a, State<u16>, true>,
@@ -116,20 +119,20 @@ struct TupleTail<'a> {
 }
 
 #[derive(Serialize, Deserialize)]
-#[cfg_attr(feature = "derive", derive(Wire))]
+#[cfg_attr(feature = "typescript", derive(Wire))]
 struct PreviousTuple<'a>(
     u32,
     #[serde(borrow)]
-    #[cfg_attr(feature = "derive", wire(extensions))]
+    #[cfg_attr(feature = "typescript", wire(extensions))]
     ExtensionSlot<'a, OldFields>,
 );
 
 #[derive(Serialize, Deserialize)]
-#[cfg_attr(feature = "derive", derive(Wire))]
+#[cfg_attr(feature = "typescript", derive(Wire))]
 struct CurrentTuple<'a>(
     u32,
     #[serde(borrow)]
-    #[cfg_attr(feature = "derive", wire(extensions))]
+    #[cfg_attr(feature = "typescript", wire(extensions))]
     ExtensionSlot<'a, TupleTail<'a>>,
 );
 
@@ -153,7 +156,8 @@ fn declared_fields_and_cases_drive_cross_revision_projection() {
             state,
             suffix: 42,
             extension,
-        })
+        }
+        .into_root())
     })
     .unwrap();
     assert_eq!(
@@ -167,10 +171,12 @@ fn declared_fields_and_cases_drive_cross_revision_projection() {
         &bytes,
         Encoding::Payload,
         LIMITS,
-        |packet: NewPacket<'_>, ctx| {
-            let state = ctx.nested(|ctx| State::decode_open(packet.state, ctx))?;
-            let fields = Fields::decode_extensions(packet.extension, ctx)?;
-            Ok((state, fields, packet.suffix))
+        |packet: Projected<'_, PacketCore<'_, State<u16>>>, ctx| {
+            let (_, state, suffix) = packet.core;
+            let state = ctx.nested(|ctx| State::decode_open(state, ctx))?;
+            let fields =
+                Fields::decode_extensions(ExtensionSlot::from_raw(packet.extensions), ctx)?;
+            Ok((state, fields, suffix))
         },
     )
     .unwrap();
@@ -183,10 +189,11 @@ fn declared_fields_and_cases_drive_cross_revision_projection() {
         &bytes,
         Encoding::Payload,
         LIMITS,
-        |packet: OldPacket<'_>, ctx| {
-            let state = ctx.nested(|ctx| OldState::decode_open(packet.state, ctx))?;
-            OldFields::decode_extensions(packet.extension, ctx)?;
-            Ok((state, packet.suffix))
+        |packet: Projected<'_, PacketCore<'_, OldState>>, ctx| {
+            let (_, state, suffix) = packet.core;
+            let state = ctx.nested(|ctx| OldState::decode_open(state, ctx))?;
+            OldFields::decode_extensions(ExtensionSlot::from_raw(packet.extensions), ctx)?;
+            Ok((state, suffix))
         },
     )
     .unwrap();
@@ -196,31 +203,26 @@ fn declared_fields_and_cases_drive_cross_revision_projection() {
         let state = ctx
             .nested(|ctx| OldState::encode_open(Some(&OldState::Idle), ctx, &mut state_scratch))?;
         let extension = OldFields {}.encode_extensions(ctx, &mut extension_scratch)?;
-        Ok(OldPacket {
-            id: 3,
-            state,
-            suffix: 42,
-            extension,
-        })
+        Ok(Projected::new((3_u8, state, 42_u8), extension.into_raw()))
     })
     .unwrap();
     let result = decode_projected(
         &bytes,
         Encoding::Payload,
         LIMITS,
-        |packet: NewPacket<'_>, ctx| {
+        |packet: Projected<'_, PacketCore<'_, State<u16>>>, ctx| {
             assert_eq!(
-                ctx.nested(|ctx| State::decode_open(packet.state, ctx))?,
+                ctx.nested(|ctx| State::decode_open(packet.core.1, ctx))?,
                 Some(State::Idle)
             );
-            Fields::decode_extensions(packet.extension, ctx)
+            Fields::<u32>::decode_extensions(ExtensionSlot::from_raw(packet.extensions), ctx)
         },
     );
     assert_eq!(result, Err(Error::Incompatible));
 }
 
 #[test]
-#[cfg(feature = "derive")]
+#[cfg(feature = "typescript")]
 fn carrier_schema_uses_the_same_types_and_ids() {
     let graph =
         ValidatedRegistry::from_type::<NewPacket<'static>>("Packet", Default::default()).unwrap();
@@ -268,13 +270,14 @@ fn required_case_markers_recover_inside_typed_option() {
             })?;
             RecoverSlot::write(ctx, &NewBranch { state, valid: true }, &mut branch_scratch)
         })?;
-        Ok((branch, 99_u8))
+        Ok(Projected::empty((branch, 99_u8)))
     })
     .unwrap();
-    assert_eq!(bytes, [1, 4, 7, 1, 42, 1, 99]);
+    assert_eq!(bytes, [1, 4, 7, 1, 42, 1, 99, 0]);
 
-    let project = |(branch, suffix): (RecoverSlot<'_, OldBranch<'_>>, u8),
-                   ctx: &ic_wire::evolution::ReadContext<'_>| {
+    let project = |root: Projected<'_, (RecoverSlot<'_, OldBranch<'_>>, u8)>,
+                   ctx: &ReadContext<'_>| {
+        let (branch, suffix) = project_core(root, ctx)?;
         let result = ctx.nested(|ctx| {
             branch.project(ctx, |branch, recovery| {
                 let state =
@@ -313,16 +316,18 @@ fn missing_required_fields_recover_after_checking_known_values() {
                 &mut branch_scratch,
             )
         })?;
-        Ok((branch, true))
+        Ok(Projected::empty((branch, true)))
     })
     .unwrap();
-    assert_eq!(bytes, [1, 7, 3, 5, 7, 3, 2, b'h', b'i', 1]);
+    assert_eq!(bytes, [1, 7, 3, 5, 7, 3, 2, b'h', b'i', 1, 0]);
 
-    let strict = |branch: CurrentRecordBranch<'_>, ctx: &ic_wire::evolution::ReadContext<'_>| {
-        Fields::decode_extensions(branch.extension, ctx).map(|fields| (branch.id, fields.epoch))
+    let strict = |root: Projected<'_, u8>, ctx: &ReadContext<'_>| {
+        Fields::<u32>::decode_extensions(ExtensionSlot::from_raw(root.extensions), ctx)
+            .map(|fields| (root.core, fields.epoch))
     };
-    let recover = |(branch, suffix): (RecoverSlot<'_, CurrentRecordBranch<'_>>, bool),
-                   ctx: &ic_wire::evolution::ReadContext<'_>| {
+    let recover = |root: Projected<'_, (RecoverSlot<'_, CurrentRecordBranch<'_>>, bool)>,
+                   ctx: &ReadContext<'_>| {
+        let (branch, suffix) = project_core(root, ctx)?;
         let result = ctx.nested(|ctx| {
             branch.project(ctx, |branch, scope| {
                 let content = Fields::decode_extensions_in(
@@ -347,7 +352,7 @@ fn missing_required_fields_recover_after_checking_known_values() {
         decode_projected(&bytes, Encoding::Payload, LIMITS, recover),
         Ok((None, true))
     );
-    let with_epoch = [1, 11, 3, 9, 2, 2, 0x80, 1, 7, 3, 2, b'h', b'i', 1];
+    let with_epoch = [1, 11, 3, 9, 2, 2, 0x80, 1, 7, 3, 2, b'h', b'i', 1, 0];
     assert_eq!(
         decode_projected(&with_epoch, Encoding::Payload, LIMITS, recover),
         Ok((Some(Some((3, 128))), true))
@@ -380,13 +385,14 @@ fn appendable_tuple_tails_preserve_inner_and_outer_positions() {
     };
     encode_projected_into(&mut bytes, Encoding::Payload, LIMITS, |ctx| {
         let tail = ctx.nested(|tuple| current.encode_extensions(tuple, &mut scratch))?;
-        Ok((9_u8, CurrentTuple(257, tail), true))
+        Ok(Projected::empty((9_u8, CurrentTuple(257, tail), true)))
     })
     .unwrap();
-    assert_eq!(bytes, [9, 0x81, 2, 7, 2, 3, 2, b'h', b'i', 3, 0, 1]);
+    assert_eq!(bytes, [9, 0x81, 2, 7, 2, 3, 2, b'h', b'i', 3, 0, 1, 0]);
 
-    let decode_previous = |(before, tuple, after): (u8, PreviousTuple<'_>, bool),
-                           ctx: &ic_wire::evolution::ReadContext<'_>| {
+    let decode_previous = |root: Projected<'_, (u8, PreviousTuple<'_>, bool)>,
+                           ctx: &ReadContext<'_>| {
+        let (before, tuple, after) = project_core(root, ctx)?;
         ctx.nested(|nested| OldFields::decode_extensions(tuple.1, nested))?;
         Ok((before, tuple.0, after))
     };
@@ -396,9 +402,10 @@ fn appendable_tuple_tails_preserve_inner_and_outer_positions() {
     );
     type TupleWithTail<'a> = (u8, u32, Option<TextRef<'a, 16>>, Option<()>, bool);
     fn decode_current<'a>(
-        (before, tuple, after): (u8, CurrentTuple<'a>, bool),
-        ctx: &ic_wire::evolution::ReadContext<'_>,
+        root: Projected<'a, (u8, CurrentTuple<'a>, bool)>,
+        ctx: &ReadContext<'_>,
     ) -> Result<TupleWithTail<'a>, Error> {
+        let (before, tuple, after) = project_core(root, ctx)?;
         let tail = ctx.nested(|nested| TupleTail::decode_extensions(tuple.1, nested))?;
         Ok((before, tuple.0, tail.extra, tail.marker, after))
     }
@@ -414,10 +421,10 @@ fn appendable_tuple_tails_preserve_inner_and_outer_positions() {
 
     encode_projected_into(&mut bytes, Encoding::Payload, LIMITS, |ctx| {
         let tail = ctx.nested(|tuple| OldFields {}.encode_extensions(tuple, &mut scratch))?;
-        Ok((9_u8, PreviousTuple(257, tail), true))
+        Ok(Projected::empty((9_u8, PreviousTuple(257, tail), true)))
     })
     .unwrap();
-    assert_eq!(bytes, [9, 0x81, 2, 0, 1]);
+    assert_eq!(bytes, [9, 0x81, 2, 0, 1, 0]);
     assert_eq!(
         decode_projected(&bytes, Encoding::Payload, LIMITS, decode_current),
         Ok((9, 257, None, None, true))
@@ -425,7 +432,7 @@ fn appendable_tuple_tails_preserve_inner_and_outer_positions() {
 }
 
 #[test]
-#[cfg(feature = "derive")]
+#[cfg(feature = "typescript")]
 fn tuple_schema_describes_only_wire_positions() {
     let graph = ValidatedRegistry::from_type::<(
         PreviousTuple<'static>,

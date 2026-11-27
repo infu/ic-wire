@@ -1,4 +1,6 @@
 //! Independent literal bytes, primitive rules and destination custody.
+mod support;
+
 use serde::{Deserialize, Serialize};
 use wire::{Direction, Encoding, Error, Limits};
 
@@ -11,12 +13,14 @@ fn limits() -> Limits {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, wire::Wire)]
+#[wire(crate = "wire")]
 enum Choice {
     Ready,
     Value(u16),
 }
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, wire::Wire)]
+#[wire(crate = "wire")]
 struct Record {
     number: u8,
     choice: Choice,
@@ -36,7 +40,7 @@ fn value() -> Record {
     }
 }
 const PAYLOAD: &[u8] = &[
-    7, 1, 0x80, 1, 1, 9, 2, 0xaa, 0xbb, 4, 1, 0, 255, 255, 2, 2, 1,
+    7, 1, 0x80, 1, 1, 9, 2, 0xaa, 0xbb, 4, 1, 0, 255, 255, 2, 2, 1, 0,
 ];
 
 fn encodings() -> [Encoding; 3] {
@@ -111,10 +115,6 @@ fn reusable_and_slice_destinations_preserve_custody_and_bytes() {
             let result = wire::encode_into(&value(), encoding, limit, &mut output)
                 .map(|bytes| bytes.to_vec());
             assert_eq!(result, expected);
-            assert_eq!(
-                wire::encoded_len(&value(), encoding, limit),
-                expected.as_ref().map(Vec::len).map_err(|e| *e)
-            );
             if expected.is_err() {
                 assert!(output.is_empty());
             }
@@ -122,18 +122,16 @@ fn reusable_and_slice_destinations_preserve_custody_and_bytes() {
                 let mut storage = vec![0xa5; capacity];
                 let result = wire::encode_to_slice(&value(), encoding, limit, &mut storage)
                     .map(|bytes| bytes.to_vec());
-                if expected.is_err() || capacity < literal(encoding).len() {
-                    assert_eq!(
-                        result.unwrap_err(),
-                        expected
-                            .as_ref()
-                            .err()
-                            .copied()
-                            .unwrap_or(Error::Limit(wire::LimitKind::Output))
-                    );
-                    assert!(storage.iter().all(|byte| *byte == 0xa5));
+                if let Ok(bytes) = &expected {
+                    if capacity < bytes.len() {
+                        assert_eq!(result, Err(Error::Limit(wire::LimitKind::Output)));
+                    } else {
+                        assert_eq!(&result, &expected);
+                        assert!(storage[bytes.len()..].iter().all(|byte| *byte == 0xa5));
+                    }
                 } else {
-                    assert_eq!(result, expected);
+                    // A caller-slice write may exhaust its capacity first.
+                    assert!(matches!(result, Err(Error::Limit(_))));
                 }
             }
         }
@@ -142,7 +140,7 @@ fn reusable_and_slice_destinations_preserve_custody_and_bytes() {
 #[test]
 fn all_u16_and_i16_encodings_follow_varint_and_zigzag_rules() {
     for bits in 0..=u16::MAX {
-        let literal = if bits < 128 {
+        let mut literal = if bits < 128 {
             vec![bits as u8]
         } else if bits < 16384 {
             vec![(bits as u8 & 127) | 128, (bits >> 7) as u8]
@@ -153,21 +151,22 @@ fn all_u16_and_i16_encodings_follow_varint_and_zigzag_rules() {
                 (bits >> 14) as u8,
             ]
         };
+        literal.push(0);
         assert_eq!(
-            wire::encode(&bits, Encoding::Payload, limits()).unwrap(),
+            support::encode(&bits, Encoding::Payload, limits()).unwrap(),
             literal
         );
         assert_eq!(
-            wire::decode::<u16>(&literal, Encoding::Payload, limits()).unwrap(),
+            support::decode::<u16>(&literal, Encoding::Payload, limits()).unwrap(),
             bits
         );
         let signed = ((bits >> 1) as i16) ^ -((bits & 1) as i16);
         assert_eq!(
-            wire::encode(&signed, Encoding::Payload, limits()).unwrap(),
+            support::encode(&signed, Encoding::Payload, limits()).unwrap(),
             literal
         );
         assert_eq!(
-            wire::decode::<i16>(&literal, Encoding::Payload, limits()).unwrap(),
+            support::decode::<i16>(&literal, Encoding::Payload, limits()).unwrap(),
             signed
         );
     }
@@ -175,7 +174,7 @@ fn all_u16_and_i16_encodings_follow_varint_and_zigzag_rules() {
 #[test]
 fn short_primitives_follow_literal_acceptance_rules() {
     assert_eq!(
-        wire::decode::<u16>(&[], Encoding::Payload, limits()),
+        support::decode::<u16>(&[], Encoding::Payload, limits()),
         Err(Error::Malformed)
     );
     for first in 0..=u8::MAX {
@@ -185,7 +184,7 @@ fn short_primitives_follow_literal_acceptance_rules() {
             _ => Err(Error::Malformed),
         };
         assert_eq!(
-            wire::decode::<bool>(&[first], Encoding::Payload, limits()),
+            support::decode::<bool>(&[first, 0], Encoding::Payload, limits()),
             boolean
         );
         let single = if first < 128 {
@@ -194,10 +193,17 @@ fn short_primitives_follow_literal_acceptance_rules() {
             Err(Error::Malformed)
         };
         assert_eq!(
-            wire::decode::<u16>(&[first], Encoding::Payload, limits()),
+            support::decode::<u16>(&[first, 0], Encoding::Payload, limits()),
             single
         );
         for second in 0..=u8::MAX {
+            let input = if first < 128 {
+                [first, 0, second]
+            } else if second >= 128 {
+                [first, second, 128]
+            } else {
+                [first, second, 0]
+            };
             let expected = if first < 128 {
                 Err(Error::Trailing)
             } else if second >= 128 {
@@ -206,7 +212,7 @@ fn short_primitives_follow_literal_acceptance_rules() {
                 Ok((first & 127) as u16 | ((second as u16) << 7))
             };
             assert_eq!(
-                wire::decode::<u16>(&[first, second], Encoding::Payload, limits()),
+                support::decode::<u16>(&input, Encoding::Payload, limits()),
                 expected
             );
         }
@@ -214,9 +220,9 @@ fn short_primitives_follow_literal_acceptance_rules() {
 }
 #[test]
 fn borrowed_bytes_retain_the_input_span() {
-    let input = [3, b'a', b'b', b'c'];
+    let input = [3, b'a', b'b', b'c', 0];
     let decoded =
-        wire::decode::<wire::BytesRef<'_, 3>>(&input, Encoding::Payload, limits()).unwrap();
+        support::decode::<wire::BytesRef<'_, 3>>(&input, Encoding::Payload, limits()).unwrap();
     assert_eq!(decoded.as_slice().as_ptr(), input[1..].as_ptr());
 }
 
@@ -240,7 +246,7 @@ mod properties {
                 frame.truncate(frame.len() - PAYLOAD.len());
                 frame.extend_from_slice(&bytes);
                 for input in [&bytes, &frame] {
-                    let result = wire::decode::<Vec<Vec<u8>>>(input, encoding, limits);
+                    let result = support::decode::<Vec<Vec<u8>>>(input, encoding, limits);
                     if input.len() > byte_cap {
                         prop_assert_eq!(result, Err(Error::Limit(wire::LimitKind::Bytes)));
                     } else if let Ok(values) = result {
@@ -260,8 +266,8 @@ mod properties {
         fn generated_packed_values_round_trip(words in prop::collection::vec(any::<i16>(), 0..16)) {
             let value = wire::Packed::<_, 16>::new(words).unwrap();
             for encoding in encodings() {
-                let bytes = wire::encode(&value, encoding, limits()).unwrap();
-                let decoded = wire::decode(&bytes, encoding, limits()).unwrap();
+                let bytes = support::encode(&value, encoding, limits()).unwrap();
+                let decoded = support::decode(&bytes, encoding, limits()).unwrap();
                 prop_assert_eq!(&value, &decoded);
             }
         }
@@ -270,9 +276,10 @@ mod properties {
         fn packed_word_domains(bytes in prop::collection::vec(any::<u8>(), 0..40)) {
             let mut payload = vec![bytes.len() as u8];
             payload.extend_from_slice(&bytes);
-            let packed = wire::decode::<wire::Packed<i16>>(&payload, Encoding::Payload, limits());
+            payload.push(0);
+            let packed = support::decode::<wire::Packed<i16>>(&payload, Encoding::Payload, limits());
             prop_assert_eq!(packed.is_ok(), bytes.len().is_multiple_of(2));
-            let floats = wire::decode::<Floats>(&payload, Encoding::Payload, limits());
+            let floats = support::decode::<Floats>(&payload, Encoding::Payload, limits());
             let (words, tail) = bytes.as_chunks::<4>();
             let expected: Vec<_> = words.iter().map(|word| f32::from_le_bytes(*word)).collect();
             if tail.is_empty() && expected.iter().all(|word| word.is_finite()) {

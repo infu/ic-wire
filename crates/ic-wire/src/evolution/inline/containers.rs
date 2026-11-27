@@ -55,6 +55,8 @@ fixed!(ic_platform_types::Principal, ic_platform_types::Account);
 type Prepared<'s, T> = Result<(T, &'s mut [u8]), Error>;
 
 impl<'de, T: Inline<'de>> Inline<'de> for Option<T> {
+    const MAY_STAGE: bool = T::MAY_STAGE;
+
     type Encoded<'s>
         = Option<T::Encoded<'s>>
     where
@@ -84,6 +86,8 @@ impl<'de, T: Inline<'de>> Inline<'de> for Option<T> {
 }
 
 impl<'de, T: Inline<'de>, E: Inline<'de>> Inline<'de> for Result<T, E> {
+    const MAY_STAGE: bool = T::MAY_STAGE || E::MAY_STAGE;
+
     type Encoded<'s>
         = Result<T::Encoded<'s>, E::Encoded<'s>>
     where
@@ -162,6 +166,8 @@ fn project_sequence<'de, T: Inline<'de>>(
 }
 
 impl<'de, T: Inline<'de>> Inline<'de> for Vec<T> {
+    const MAY_STAGE: bool = T::MAY_STAGE;
+
     type Encoded<'s>
         = Vec<T::Encoded<'s>>
     where
@@ -182,6 +188,8 @@ impl<'de, T: Inline<'de>> Inline<'de> for Vec<T> {
 }
 
 impl<'de, T: Inline<'de>, const N: usize> Inline<'de> for List<T, N> {
+    const MAY_STAGE: bool = T::MAY_STAGE;
+
     type Encoded<'s>
         = Vec<T::Encoded<'s>>
     where
@@ -221,6 +229,8 @@ impl<'de, T: Inline<'de>, const N: usize> Inline<'de> for [T; N]
 where
     [T::Decoded; N]: Deserialize<'de>,
 {
+    const MAY_STAGE: bool = T::MAY_STAGE;
+
     type Encoded<'s>
         = EncodedArray<T::Encoded<'s>>
     where
@@ -261,19 +271,19 @@ mod tests {
         type Rows = List<Option<Result<[u16; 2], u32>>, 4>;
         let rows = Rows::new(vec![Some(Ok([500, 12])), None, Some(Err(99))]).unwrap();
         let mut output = Vec::new();
-        inline::encode(&rows, &mut output, Encoding::Payload, LIMITS, &mut []).unwrap();
+        inline::encode_inline(&rows, &mut output, Encoding::Payload, LIMITS, &mut []).unwrap();
 
         assert_eq!(output, [3, 1, 0, 244, 3, 12, 0, 1, 1, 99]);
         assert_eq!(
-            inline::decode::<Rows>(&output, Encoding::Payload, LIMITS),
+            inline::decode_inline::<Rows>(&output, Encoding::Payload, LIMITS),
             Ok(rows)
         );
 
         let text = Box::<str>::from("row");
-        inline::encode(&text, &mut output, Encoding::Payload, LIMITS, &mut []).unwrap();
+        inline::encode_inline(&text, &mut output, Encoding::Payload, LIMITS, &mut []).unwrap();
         assert_eq!(output, [3, b'r', b'o', b'w']);
         assert_eq!(
-            inline::decode::<Box<str>>(&output, Encoding::Payload, LIMITS),
+            inline::decode_inline::<Box<str>>(&output, Encoding::Payload, LIMITS),
             Ok(text)
         );
     }
@@ -308,15 +318,15 @@ mod tests {
     #[test]
     fn collection_incompatibility_still_checks_later_elements() {
         assert_eq!(
-            inline::decode::<List<Checked, 2>>(&[2, 0, 1], Encoding::Payload, LIMITS),
+            inline::decode_inline::<List<Checked, 2>>(&[2, 0, 1], Encoding::Payload, LIMITS),
             Err(Error::Malformed)
         );
         assert_eq!(
-            inline::decode::<Vec<Checked>>(&[2, 0, 2], Encoding::Payload, LIMITS),
+            inline::decode_inline::<Vec<Checked>>(&[2, 0, 2], Encoding::Payload, LIMITS),
             Err(Error::Incompatible)
         );
         assert_eq!(
-            inline::decode::<[Checked; 2]>(&[0, 1], Encoding::Payload, LIMITS),
+            inline::decode_inline::<[Checked; 2]>(&[0, 1], Encoding::Payload, LIMITS),
             Err(Error::Malformed)
         );
     }
@@ -329,7 +339,7 @@ mod tests {
             ..LIMITS
         };
         assert_eq!(
-            inline::encode(
+            inline::encode_inline(
                 &vec![8_u16; 2],
                 &mut output,
                 Encoding::Payload,

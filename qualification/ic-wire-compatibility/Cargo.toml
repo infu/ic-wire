@@ -24,7 +24,6 @@ candid-comparison = ["dep:candid"]
 typescript = [
     "wire/service-client",
     "wire/api-manifest",
-    "wire/derive",
     "wire/platform-types",
     "dep:ic-wire-consumer",
     "ic-wire-consumer/schema",
@@ -43,7 +42,7 @@ serde_bytes.workspace = true
 serde_json.workspace = true
 stats_alloc.workspace = true
 toko-tooling.workspace = true
-wire.workspace = true
+wire = { workspace = true, features = ["derive"] }
 
 [[test]]
 name = "compatibility"

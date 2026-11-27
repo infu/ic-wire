@@ -76,6 +76,25 @@ function resolve(schema: Schema, types: Types, visit?: (schema:Schema)=>void): S
   visit?.(schema);
   return schema;
 }
+function admitMessageRoot(schema: Schema, types: Types): void {
+  // Inspect the shape without dropping wrapper visits or custom checks
+  // during the actual encode/decode.
+  const visited = new Set<Schema>();
+  for (;;) {
+    if (!schema || typeof schema !== 'object' || visited.has(schema)) return fail('value');
+    if (schema.k === 'extension-record' || schema.k === 'extension-tuple') return;
+    visited.add(schema);
+    if (schema.k === 'newtype') {
+      schema = schema.item;
+    } else if (schema.k === 'ref' && Object.hasOwn(types, schema.name)) {
+      const next = types[schema.name];
+      if (next === undefined) return fail('value');
+      schema = next;
+    } else {
+      return fail('value');
+    }
+  }
+}
 function validate(schema:Schema,value:unknown,checks:Checks):void {
   if(schema.check!==undefined) {
     if(!Object.hasOwn(checks,schema.check)) return fail('value');
@@ -474,13 +493,14 @@ function decodeError(error: unknown): never { if (error instanceof WireError) th
 // Factories consume generated private metadata. They do not validate arbitrary
 // external schemas or clone/protect objects supplied by a custom trusted caller.
 export function createPayloadCodec(metadata: unknown, registry: unknown = {}, checks:Checks = {}) {
-  const meta = metadata as Payload, types = registry as Types;
+  const meta = metadata as Payload, {schema} = meta, types = registry as Types;
   if (!Number.isSafeInteger(meta.bytes) || meta.bytes < 0) fail('value');
   for (const value of [meta.nodes, meta.depth]) if (!Number.isSafeInteger(value) || value < 1) fail('value');
+  admitMessageRoot(schema, types);
   return {
     encode(value: unknown): Uint8Array {
       const out = new Writer(meta.bytes);
-      write(meta.schema, value, out, new Budget(meta.nodes, meta.depth), 1, types,checks);
+      write(schema, value, out, new Budget(meta.nodes, meta.depth), 1, types,checks);
       return out.finish();
     },
     decode(bytes: Uint8Array): unknown {
@@ -489,7 +509,7 @@ export function createPayloadCodec(metadata: unknown, registry: unknown = {}, ch
       try {
         const input = new Reader(bytes);
         const budget = new Budget(meta.nodes, meta.depth);
-        const value = read(meta.schema, input, budget, 1, types,checks);
+        const value = read(schema, input, budget, 1, types,checks);
         if (input.offset !== bytes.length) return fail('malformed');
         if (budget.incompatible !== 0) return fail('incompatible');
         return value;
@@ -498,16 +518,18 @@ export function createPayloadCodec(metadata: unknown, registry: unknown = {}, ch
   };
 }
 export function createCodec(metadata: unknown, registry: unknown = {}, checks:Checks = {}) {
-  const meta = metadata as Method, types = registry as Types, id = BigInt(meta.id);
+  const meta = metadata as Method, {request, response} = meta, types = registry as Types, id = BigInt(meta.id);
   if (id < 0n || id >= (1n << 64n)) fail('value');
   for (const value of [meta.requestBytes, meta.responseBytes, meta.requestNodes, meta.responseNodes, meta.requestDepth, meta.responseDepth]) {
     if (!Number.isSafeInteger(value) || value < 1) fail('value');
   }
   if (meta.requestBytes < 11 || meta.responseBytes < 11) fail('value');
+  admitMessageRoot(request, types);
+  admitMessageRoot(response, types);
   function encode(value: unknown, direction: 0 | 1): Uint8Array {
     const out = new Writer(direction ? meta.responseBytes : meta.requestBytes, 11);
     out.header(id, direction);
-    write(direction ? meta.response : meta.request, value, out, new Budget(direction ? meta.responseNodes : meta.requestNodes, direction ? meta.responseDepth : meta.requestDepth), 1, types,checks);
+    write(direction ? response : request, value, out, new Budget(direction ? meta.responseNodes : meta.requestNodes, direction ? meta.responseDepth : meta.requestDepth), 1, types,checks);
     return out.finish();
   }
   function decode(bytes: Uint8Array, direction: 0 | 1): unknown {
@@ -519,7 +541,7 @@ export function createCodec(metadata: unknown, registry: unknown = {}, checks:Ch
       const input = new Reader(bytes, 11);
       if (input.view.getBigUint64(2, true) !== id) return fail('identity');
       const budget = new Budget(direction ? meta.responseNodes : meta.requestNodes, direction ? meta.responseDepth : meta.requestDepth);
-      const value = read(direction ? meta.response : meta.request, input, budget, 1, types,checks);
+      const value = read(direction ? response : request, input, budget, 1, types,checks);
       if (input.offset !== bytes.length) return fail('malformed');
       if (budget.incompatible !== 0) return fail('incompatible');
       return value;

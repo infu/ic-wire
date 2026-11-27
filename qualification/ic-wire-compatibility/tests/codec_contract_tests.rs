@@ -1,4 +1,6 @@
 //! Frame borrowing, truncation and packed floating-point contract checks.
+mod support;
+
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -151,8 +153,8 @@ const ENCODING: wire::Encoding = wire::Encoding::Frame {
     direction: wire::Direction::Request,
 };
 fn encode<T: Serialize>(value: &T) -> Vec<u8> {
-    wire::encode(value, ENCODING, LIMITS).unwrap()
+    support::encode(value, ENCODING, LIMITS).unwrap()
 }
 fn decode<'de, T: Deserialize<'de>>(bytes: &'de [u8]) -> Result<T, wire::Error> {
-    wire::decode(bytes, ENCODING, LIMITS)
+    support::decode(bytes, ENCODING, LIMITS)
 }

@@ -1,21 +1,20 @@
 # IC Wire
 
-Bounded Serde/Postcard encoding for controlled Internet Computer contracts, with
+Evolvable messages over bounded Serde/Postcard for Internet Computer contracts, with
 optional schema collection, bulk-field lint and TypeScript client generation.
 The codec is `no_std` with `alloc`, Wasm-safe and independent of IC SDKs.
-Rust 1.100.0 or later is required.
+Rust 1.100.0 or later is required. The examples use the pending evolution API.
+Adjust the path to the checked-out IC Wire crate in your workspace.
 
 ```toml
 [dependencies]
-ic-wire = "0.31.1"
-serde = { version = "1", features = ["derive"] }
+ic-wire = { path = "crates/ic-wire", features = ["derive"] }
 ```
 
 ```rust
-use ic_wire::{decode, encode, Encoding, Limits};
-use serde::{Deserialize, Serialize};
+use ic_wire::{decode, encode, Encoding, Limits, Wire};
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Wire)]
 struct Reply { accepted: bool, revision: u64 }
 
 let limits = Limits { bytes: 64, allocation: 4096, nodes: 32, depth: 8 };
@@ -27,9 +26,10 @@ assert_eq!(decoded, value);
 ```
 
 Use `Encoding::Frame { method, direction }` for request/response framing and
-`method_id(name)` for name-derived identities. `encoded_len`, `encode_into` and
-`encode_to_slice` share admission with owned encoding. Decode rejects trailing
-bytes. Header identity is not authentication.
+`method_id(name)` for name-derived identities. `encode_into` reuses a Vec and
+`encode_to_slice` writes a derived message into caller storage. Both handle
+temporary extension storage under the encoder's limits. Decode rejects trailing
+bytes. Header identity is independent of authentication.
 
 ## Fields and limits
 
@@ -54,27 +54,13 @@ and re-encoding can normalize collections or accepted noncanonical forms.
 
 ### Sizing a request or reply
 
-For the two-field `Reply` above, the largest bare payload takes 11 bytes
-(one boolean and a ten-byte `u64`). Encoding visits the struct and its two
-fields. Each visit costs four nodes and twice the visited Rust value size in
-charge units. Each unit costs eight allowance bytes. The deepest field has
-depth two, and the encoder requires two additional levels.
-
-```rust,ignore
-let bytes = 11;
-let limits = Limits {
-    bytes,
-    allocation: bytes + 16 * (size_of::<Reply>() + size_of::<bool>() + size_of::<u64>()),
-    nodes: 12,
-    depth: 4,
-};
-```
-
-These limits cover both directions for this plain derived DTO. For a frame,
-add 11 to both byte and allocation allowances. Text, byte spans and nested
-collections incur additional charges. Size requests and replies separately and
-test the largest admitted value on the target. The allocation calculation uses
-the configured byte cap even when a particular message is short.
+For the two-field `Reply` above, the largest bare message takes 12 bytes.
+The boolean uses one byte, the largest `u64` uses ten, and the empty sparse
+block uses one. A framed reply adds 11 bytes. Traversal and allocation
+allowances also account for staging and reading the typed projections.
+Size each direction separately and exercise the largest valid shape on the
+target, including populated optional fields. Use `projected_len` for an
+already-staged `evolution::Projected` value.
 
 ### Choosing an integer list layout
 
@@ -84,7 +70,7 @@ limit for `N` in either layout.
 | What matters for this field? | Starting choice | How to confirm |
 | --- | --- | --- |
 | Schema limits every unsigned value to 0–127 or every signed value to −64–63 | Keep the ordinary list for payload size | Each element uses one varint byte throughout that range. |
-| Typical values are small, or their distribution is unknown | `List<T, N>` for ordinary varints | Compare `encoded_len` for both layouts on representative inputs. |
+| Typical values are small, or their distribution is unknown | `List<T, N>` for ordinary varints | Compare encoded lengths for both layouts on representative inputs. |
 | Most values require many varint bytes | `Packed<T, N>` for fixed-width words | Check typical and largest allowed messages against your byte budget. |
 | Encoding or decoding a large list dominates IC instructions | Try `Packed<T, N>`, even for small integers | Measure encode and decode on the target canister and check the larger small-value payload fits. |
 
@@ -150,32 +136,28 @@ before expanding the list.
 | `api-manifest` | Also exports bounded per-endpoint API snapshots for CI |
 | `service-client` | Generates a typed TypeScript service over existing method codecs |
 | `typescript` | Schema collection, validated graph, lint and generated clients |
-| `evolution-derive` | Provides the `ic_wire::Wire` derive and evolving codec without schema tooling |
-| `derive` | Adds schema generation to the Wire derive |
+| `derive` | Provides the `ic_wire::Wire` and explicit `Evolve` derives |
 | `platform-types` | Also projects published Platform Types Principal/Account |
 
-For a crate that owns shared DTOs, enable `derive` once on its Cargo dependency:
+Use `derive` for shared DTOs. Enable `typescript` in the builds that generate client metadata:
 
 ```toml
 [dependencies]
-ic-wire = { version = "0.31.1", features = ["derive"] }
+ic-wire = { path = "crates/ic-wire", features = ["derive", "typescript"] }
 ```
 
 Use the same declaration on native and Wasm:
 
 ```rust
-use ic_wire::typescript::Wire;
-use serde::{Deserialize, Serialize};
+use ic_wire::Wire;
 
-#[derive(Serialize, Deserialize, Wire)]
-#[wire(fixed)]
+#[derive(Wire)]
 struct Request { sequence: u64 }
 ```
 
-With `derive` enabled, the same schema trait implementation is available on both
-targets, including `ValidatedRegistry::from_type::<Request>`. A crate that explicitly offers a codec-only
-build can instead forward `ic-wire/derive` from its own optional feature and
-apply `cfg_attr` for that feature alone.
+With `derive` and `typescript` enabled, the schema trait implementation is
+available on both targets, including `ValidatedRegistry::from_type::<Request>`.
+A codec-only guest can keep `derive` and omit `typescript`.
 
 For API drift checks, enable `api-manifest` on the host-side generator.
 Pass the deployed endpoint names and the same `Method` descriptors used to
@@ -261,7 +243,7 @@ Rust validation.
 
 ## Evolvable method types
 
-Enable `evolution-derive` and declare `evolution::Method<Request, Reply>` with
+Enable `derive` and declare `Method<Request, Reply>` with
 `#[derive(ic_wire::Wire)]` on both types. Every framed root has room
 for later additions. Add an `Option<T>` field to the same struct with
 `#[wire(id = N)]` and a stable, unused ID. Tuples can append optional slots
@@ -278,13 +260,13 @@ recovery. Manifest checks compare old writes to new request readers and new
 writes to old reply readers, including required fields within nested records.
 [Declarations and projection](https://github.com/dragginzgame/ic-wire/blob/main/docs/design/evolution.md)
 
-## Upgrade from 0.22
+## Cutover to evolvable messages
 
-This is a hard cut. Payload/request/response functions under `native` become
-root-level operations with `Encoding`; schema generation uses a validated graph;
-derive is a separate feature and lives under `typescript`. Generation requires
-an explicit diagnostic handler. Regenerate clients and runtime together. No
-legacy compatibility lane, fallback reader or storage migration is provided.
+The root Rust APIs require an evolving message. An explicit Serde projection
+uses `evolution::Projected` with a sparse root block. The browser message
+factories likewise require an extension record or tuple at the root. Fixed
+values remain available as nested fields. Regenerate the client and runtime
+together when changing from the previous positional format.
 
 See the [repository](https://github.com/dragginzgame/ic-wire) for qualification,
 design and measured tradeoffs. Smaller Wasm in the sample workload does not imply

@@ -1,5 +1,5 @@
 //! Derived metadata goes through the same graph admission as explicit schemas.
-#![cfg(feature = "derive")]
+#![cfg(all(feature = "derive", feature = "typescript"))]
 use ic_wire::typescript::{GenerationError, SchemaContext, SchemaLimits, ValidatedRegistry, Wire};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -188,6 +188,10 @@ fn concrete_generics_preserve_bounds_defaults_and_variant_layout() {
 #[test]
 fn borrowed_generic_projection_accepts_nonstatic_lifetimes_and_preserves_custody() {
     use ic_wire::{Encoding, Limits, decode};
+
+    #[derive(Wire)]
+    struct Message<'a>(Borrowed<'a, u16, 3>);
+
     fn project<'a>(_: &'a str) -> ValidatedRegistry {
         let mut named = ic_wire::typescript::SchemaRegistry::new(SchemaLimits::default()).unwrap();
         named.register::<Borrowed<'a, u16, 3>>("Borrowed").unwrap();
@@ -203,8 +207,8 @@ fn borrowed_generic_projection_accepts_nonstatic_lifetimes_and_preserves_custody
         value["Borrowed"]["fields"][1]["value"],
         json!({"k":"bytes","max":3})
     );
-    let literal = [2, b'h', b'i', 2, 170, 187, 128, 1];
-    let decoded: Borrowed<'_, u16, 3> = decode(
+    let literal = [2, b'h', b'i', 2, 170, 187, 128, 1, 0];
+    let Message(decoded) = decode(
         &literal,
         Encoding::Payload,
         Limits {

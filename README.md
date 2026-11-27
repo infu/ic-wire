@@ -1,7 +1,7 @@
 # IC Wire
 
-Bounded Serde/Postcard encoding with optional schema collection, bulk-field
-advice and generated TypeScript clients. The codec is `no_std` with `alloc`,
+Evolvable messages over bounded Serde/Postcard, with optional schema collection,
+bulk-field advice and generated TypeScript clients. The codec is `no_std` with `alloc`,
 Wasm-safe and independent of IC SDKs. Rust 1.100.0 is the compiler floor and the
 pinned development toolchain.
 
@@ -10,7 +10,9 @@ Start with the [package guide](crates/ic-wire/README.md) for installation, a Rus
 round trip, feature flags and TypeScript delivery.
 
 - One `Encoding` selection covers payloads and request/response frames.
-- Owned, reusable `Vec` and caller-slice outputs share sizing and admission.
+- Every message has a sparse root. Fixed positional layouts are available inside
+  messages.
+- Owned, reusable `Vec` and caller-slice outputs share bounded field admission.
 - Explicit byte, text, list and packed fields retain consumer-selected layouts.
 - Optional schema collection and derive feed one validated graph and one
   bundled TypeScript interpreter. No default features are enabled.
@@ -22,16 +24,16 @@ they are not a process heap cap. Custom Serde work remains trusted. Preserve
 original bytes for signing, hashing and retries because decode/re-encode may
 normalize collections or accepted noncanonical encodings.
 
-The 0.24 API is a hard cut from 0.22: use root-level operations with `Encoding`,
-use `Packed<T, N>` for bounded packed fields, and regenerate clients and runtime
-together. There is no legacy fallback reader or automatic storage migration.
+The pending evolution release changes the public byte contract. Derive `Wire`
+on message types, then regenerate clients and runtime together. Persisted bytes
+and hash inputs belong to their owning applications.
 
 ## Repository map
 
 | Path | Responsibility |
 | --- | --- |
 | `crates/ic-wire/` | Portable codec, field adapters and optional schema tooling |
-| `crates/ic-wire-derive/` | Strict schema derive; does not generate serialization |
+| `crates/ic-wire-derive/` | Typed message projections and optional schema metadata |
 | `qualification/` | Private contract tests and standalone consumer workspace |
 | `qualification/ic-wire-instructions/` | Private native simulator driver |
 | `vendor/toko-tooling/` | Snapshot-owned tooling; no local edits |
@@ -72,7 +74,7 @@ sequence:
 
 | Scope | Commands |
 | --- | --- |
-| One codec contract | `cargo test -p ic-wire --test encode_tests --locked` (replace the test name as needed) |
+| One codec contract | `cargo test -p ic-wire --lib tests::encode_tests --locked` (replace the test name as needed) |
 | Native schema checks | `make test-host`, `make lint-host`, `make doc-host` |
 | Strict derive | `make test-derive`, `make lint-derive` |
 | Allocation admission | `make test-allocation` |

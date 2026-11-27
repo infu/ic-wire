@@ -1,12 +1,12 @@
 //! Literal field contracts and bounded visitor/custody checks.
 
-use ic_wire::LimitKind;
-use ic_wire::{
-    Bytes, BytesRef, Direction, Encoding, Error, Limits, List, Text, TextRef, decode, encode,
-    encode_into, encode_to_slice,
+use crate::{
+    Bytes, BytesRef, Direction, Encoding, Error, LimitKind, Limits, List, Text, TextRef,
+    decode::decode,
+    encode::{encode, encode_into, encode_to_slice},
 };
 use serde::{Deserialize, Deserializer, Serialize};
-use std::cell::Cell;
+use std::{cell::Cell, thread_local, vec, vec::Vec};
 
 fn limits() -> Limits {
     Limits {

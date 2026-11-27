@@ -8,9 +8,9 @@
   "schemas":{
     "Reply":{"k":"ref","name":"Wire_Batch_53ad886658187c2b"},
     "Request":{"k":"ref","name":"Wire_Batch_53ad886658187c2b"},
-    "Wire_Batch_53ad886658187c2b":{"k":"record","fields":[
+    "Wire_Batch_53ad886658187c2b":{"k":"extension-record","fields":[
       {"name":"groups","value":{"k":"list","max":4,"item":{"k":"ref","name":"Wire_Group_9634b047283bb25e"}}},
-      {"name":"suffix","value":{"k":"ref","name":"Wire_TextRef_4b978b794f075295"}}]},
+      {"name":"suffix","value":{"k":"ref","name":"Wire_TextRef_4b978b794f075295"}}],"extensions":[]},
     "Wire_Group_9634b047283bb25e":{"k":"record","fields":[
       {"name":"channel","value":{"k":"ref","name":"Wire_u16_4d24d3193e7ef3bf"}},
       {"name":"rows","value":{"k":"list","max":512,"item":{"k":"ref","name":"Wire_Row_53a41bf70e5f6f72"}}},

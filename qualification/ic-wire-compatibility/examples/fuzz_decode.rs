@@ -2,6 +2,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use wire::evolution::{Projected, decode_projected};
 use wire::{Direction, Encoding, Limits, Packed};
 
 fuzz_target!(|input: &[u8]| {
@@ -16,6 +17,14 @@ fuzz_target!(|input: &[u8]| {
         direction: Direction::Request,
     };
     for encoding in [Encoding::Payload, frame] {
-        let _ = wire::decode::<(Vec<Option<u8>>, Packed<i16, 8>)>(input, encoding, limits);
+        let _ = decode_projected(
+            input,
+            encoding,
+            limits,
+            |root: Projected<'_, (Vec<Option<u8>>, Packed<i16, 8>)>, context| {
+                root.extensions.visit(context, |_, _| Ok(()))?;
+                Ok(root.core)
+            },
+        );
     }
 });

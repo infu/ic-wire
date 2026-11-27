@@ -1,12 +1,11 @@
 //! Literal decoding and admission boundary cases.
 
-use ic_wire::LimitKind;
-use ic_wire::{Direction, Encoding, Error, Limits, decode};
+use crate::{Direction, Encoding, Error, LimitKind, Limits, decode::decode};
 use serde::{
     Deserialize, Deserializer,
     de::{SeqAccess, Visitor},
 };
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, vec, vec::Vec};
 
 struct NoHint;
 

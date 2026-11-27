@@ -1,8 +1,6 @@
 //! Named production into the sole JSON/typed-graph admission boundary.
-#[cfg(feature = "evolution")]
 use super::super::{Method, PayloadLimits};
 use super::{GenerationError, Projection, SchemaContext, SchemaLimits, ValidatedRegistry, Wire};
-#[cfg(feature = "evolution")]
 use crate::evolution::{__private::EvolvingSchema, Method as EvolvingMethod};
 use alloc::{
     boxed::Box,
@@ -33,7 +31,6 @@ pub(super) struct Names {
 pub struct SchemaRegistry {
     context: SchemaContext,
     limits: SchemaLimits,
-    #[cfg(feature = "evolution")]
     evolving_roots: BTreeSet<String>,
 }
 
@@ -68,12 +65,12 @@ impl SchemaRegistry {
                 })),
             },
             limits,
-            #[cfg(feature = "evolution")]
             evolving_roots: BTreeSet::new(),
         })
     }
 
-    /// Register a concrete root under a public alias; duplicate aliases reject.
+    /// Register a named schema definition; duplicate aliases reject. A fixed
+    /// definition can be emitted in declarations and used as a message field.
     ///
     /// # Errors
     /// Schema rejects invalid/duplicate names or a failed collector. Complexity
@@ -97,7 +94,6 @@ impl SchemaRegistry {
     /// Generated extension layouts can nest through supported containers.
     /// Fixed Serde aggregates require ordinary descendants. Opaque extension
     /// and recovery carriers belong to explicit projection methods.
-    #[cfg(feature = "evolution")]
     pub fn register_evolving_method<'a, Request: EvolvingSchema, Reply: EvolvingSchema>(
         &mut self,
         method: &EvolvingMethod<Request, Reply>,
@@ -185,7 +181,6 @@ impl SchemaRegistry {
         }
         let names = self.context.names.ok_or(GenerationError::Schema)?;
         let graph = ValidatedRegistry::from_metadata(&names.definitions, self.limits)?;
-        #[cfg(feature = "evolution")]
         graph.validate_evolving_roots(&self.evolving_roots)?;
         Ok(graph)
     }

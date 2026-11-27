@@ -96,8 +96,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if numeric_mode {
             return numeric::run(pic, &directory).await;
         }
-        let expected = [73,87,7,0,0,0,0,0,0,0,0,128,1,6,115,101,110,115,111,114,2,0,255,6,0,128,0,0,255,127,2,1,128,1,
-            73,87,7,0,0,0,0,0,0,0,1,129,1,1];
+        let expected = [73,87,7,0,0,0,0,0,0,0,0,128,1,6,115,101,110,115,111,114,2,0,255,6,0,128,0,0,255,127,2,1,128,1,0,
+            73,87,7,0,0,0,0,0,0,0,1,129,1,1,0];
         let mut rows = Vec::new();
         let mut caller = 0_u64;
         for profile in ["wire-size", "wire-speed"] {

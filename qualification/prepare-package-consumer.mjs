@@ -7,7 +7,7 @@ cpSync('qualification/ic-wire-consumer', join(output, 'ic-wire-consumer'), { rec
 let workspace = readFileSync('qualification/Cargo.toml', 'utf8')
   .replace(/^members = .*$/m, 'members = ["ic-wire-consumer"]')
   .replace('path = "../crates/ic-wire"', `path = ${quote(join(output, 'ic-wire-' + version))}`);
-workspace = workspace.replace(/^(candid|proptest|libfuzzer-sys|ic-wire-consumer|serde_bytes|serde_json|ic-testkit|sha2|tokio) = .*\n/gm, '');
+workspace = workspace.replace(/^(candid|proptest|libfuzzer-sys|ic-wire-consumer|serde_bytes|serde_json|stats_alloc|ic-testkit|sha2|tokio) = .*\n/gm, '');
 // Extracted archives are standalone packages, not new workspace members.
 workspace = workspace.replace('[workspace]\n',
   `[workspace]\nexclude = ["ic-wire-${version}", "ic-wire-derive-${version}"]\n`);
