@@ -121,10 +121,10 @@ impl ValidatedRegistry {
     /// Acknowledgements never change generated source.
     ///
     /// # Errors
-    /// Returns Schema for invalid names, missing or positional message roots,
-    /// empty module specifiers or zero node/depth allowances; Complexity for
-    /// unsafe JS integers or excess output. Rooted advice can also
-    /// return the errors documented by [`Self::lint_bulk_roots`].
+    /// Returns Schema for invalid names or message layouts, empty module
+    /// specifiers, or zero byte, node or depth allowances. Returns Complexity
+    /// for unsafe JS integers or excess output. Rooted advice can also return
+    /// the errors documented by [`Self::lint_bulk_roots`].
     pub fn payload_module(
         &self,
         export: &str,
@@ -136,7 +136,7 @@ impl ValidatedRegistry {
     ) -> Result<String, GenerationError> {
         Self::admit_runtime_module(runtime_module)?;
         let root_index = self.admit_client(export, root, limits)?;
-        self.evolving_root_nodes(&[root_index])?;
+        self.validate_message_roots(&[root_index])?;
         let mut output = Output::new(self.output_bytes);
         self.render_payload_module(&mut output, export, root, runtime_module, limits)
             .map_err(|_| GenerationError::Complexity)?;
@@ -173,6 +173,7 @@ impl ValidatedRegistry {
                 .names
                 .binary_search_by(|name| name.as_str().cmp(export))
                 .is_ok()
+            || limits.bytes == 0
             || limits.nodes == 0
             || limits.depth == 0
         {
@@ -261,7 +262,7 @@ impl ValidatedRegistry {
             }
         }
 
-        self.evolving_root_nodes(&roots).map(|_| ())
+        self.validate_message_roots(&roots)
     }
 
     fn render_methods(

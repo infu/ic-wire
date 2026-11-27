@@ -48,4 +48,23 @@ for (const [request,response] of [[fixedRoot,evolvingRoot],[evolvingRoot,fixedRo
 const message = runtime.createPayloadCodec({schema:evolvingRoot,...policy},aliases);
 assert.deepEqual(message.encode([true]), Uint8Array.of(1,0));
 assert.throws(() => message.decode(Uint8Array.of(1)), error => error instanceof runtime.WireError && error.code === 'malformed');
+
+const emptyRoot = {k:'extension-tuple',items:[],extensions:[]};
+const emptyPayload = {...policy,schema:emptyRoot,bytes:1};
+assert.throws(() => runtime.createPayloadCodec({...emptyPayload,bytes:0}), refusal);
+const payloadAtMinimum = runtime.createPayloadCodec(emptyPayload);
+assert.deepEqual(payloadAtMinimum.encode([]), Uint8Array.of(0));
+assert.deepEqual(payloadAtMinimum.decode(Uint8Array.of(0)), []);
+
+const emptyFrame = {...frame,request:emptyRoot,response:emptyRoot,requestBytes:12,responseBytes:12};
+for (const limit of ['requestBytes','responseBytes']) {
+  assert.throws(() => runtime.createCodec({...emptyFrame,[limit]:11}), refusal);
+}
+const frameAtMinimum = runtime.createCodec(emptyFrame);
+const requestAtMinimum = Uint8Array.of(73,87,7,0,0,0,0,0,0,0,0,0);
+const responseAtMinimum = Uint8Array.of(73,87,7,0,0,0,0,0,0,0,1,0);
+assert.deepEqual(frameAtMinimum.encodeRequest([]), requestAtMinimum);
+assert.deepEqual(frameAtMinimum.encodeResponse([]), responseAtMinimum);
+assert.deepEqual(frameAtMinimum.decodeRequest(requestAtMinimum), []);
+assert.deepEqual(frameAtMinimum.decodeResponse(responseAtMinimum), []);
 process.stdout.write(JSON.stringify({ checked }));

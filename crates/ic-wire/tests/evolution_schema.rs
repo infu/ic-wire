@@ -234,6 +234,103 @@ fn serde_dto_annotations_keep_names_and_borrows_in_nested_wire_records() {
     );
 }
 
+#[cfg(feature = "derive")]
+#[test]
+fn standalone_generation_checks_projected_roots_through_aliases() {
+    use ic_wire::{
+        Encoding, Limits, Wire, encode,
+        typescript::{Method, PayloadLimits},
+    };
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, Wire)]
+    struct Inner {
+        value: u8,
+    }
+
+    #[derive(Serialize, Deserialize, Wire)]
+    #[wire(fixed)]
+    struct Fixed {
+        inner: Inner,
+    }
+
+    #[derive(Wire)]
+    struct Message {
+        fixed: Fixed,
+    }
+
+    let value = Message {
+        fixed: Fixed {
+            inner: Inner { value: 7 },
+        },
+    };
+    let limits = Limits {
+        bytes: 16,
+        allocation: 4096,
+        nodes: 64,
+        depth: 8,
+    };
+    // The fixed Serde subtree emits no inner extension block.
+    assert_eq!(encode(&value, Encoding::Payload, limits).unwrap(), [7, 0]);
+
+    let registry =
+        ValidatedRegistry::from_type::<Message>("Root", SchemaLimits::default()).unwrap();
+    let mut types: BTreeMap<String, Value> =
+        serde_json::from_str(&registry.metadata_json().unwrap()).unwrap();
+    types.insert(
+        "Alias".into(),
+        json!({"k":"newtype","item":{"k":"ref","name":"Root"},"check":"checkRoot"}),
+    );
+    let browser_limits = PayloadLimits {
+        bytes: 16,
+        nodes: 16,
+        depth: 8,
+    };
+    let method = Method {
+        export: "call",
+        id: 7,
+        request: "Alias",
+        response: "Alias",
+        request_limits: browser_limits,
+        response_limits: browser_limits,
+    };
+
+    for projected in [true, false] {
+        if !projected {
+            // An explicit projection may supply the inner block itself.
+            types
+                .get_mut("Root")
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .remove("projected");
+        }
+        let registry = ValidatedRegistry::from_metadata(&types, SchemaLimits::default()).unwrap();
+        let expected = projected.then_some(GenerationError::Schema);
+        assert_eq!(
+            registry
+                .payload_module(
+                    "payload",
+                    "Alias",
+                    "./runtime.ts",
+                    browser_limits,
+                    &BTreeMap::new(),
+                    |_| {},
+                )
+                .err(),
+            expected
+        );
+        assert_eq!(
+            registry
+                .method_module(&[method], "./runtime.ts", &BTreeMap::new(), |_| {})
+                .err(),
+            expected
+        );
+        #[cfg(feature = "api-manifest")]
+        assert_eq!(registry.api_manifests(&[("call", method)]).err(), expected);
+    }
+}
+
 mod typed_methods {
     use super::*;
     use core::marker::PhantomData;
@@ -354,15 +451,21 @@ mod typed_methods {
     }
 
     #[test]
-    fn typed_roots_allow_fixed_recursion_and_reject_unprojected_nested_layouts() {
+    fn typed_roots_allow_fixed_recursion_and_plain_aggregates_inside_fixed_values() {
         collected(&Method::<Root<Nested<Fixed>>, _>::new(
             "canister_export",
             RUST_LIMITS,
             RUST_LIMITS,
         ))
         .unwrap();
+        collected(&Method::<Root<Nested<Unmarked>>, _>::new(
+            "a",
+            RUST_LIMITS,
+            RUST_LIMITS,
+        ))
+        .unwrap();
         assert_eq!(
-            collected(&Method::<Root<Nested<Unmarked>>, _>::new(
+            collected(&Method::<Root<Unmarked>, _>::new(
                 "a",
                 RUST_LIMITS,
                 RUST_LIMITS

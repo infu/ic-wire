@@ -33,6 +33,8 @@ export type Checks=Readonly<Record<string,(value:unknown)=>void>>;
 type Types = Readonly<Record<string, Schema>>;
 type Payload = { schema: Schema; bytes: number; nodes: number; depth: number };
 type Method = { id: string; request: Schema; response: Schema; requestBytes: number; responseBytes: number; requestNodes: number; responseNodes: number; requestDepth: number; responseDepth: number };
+const headerBytes = 11;
+const minimumPayloadBytes = 1; // Length prefix of an empty sparse root block.
 const fail = (code: WireError['code']): never => { throw new WireError(code); };
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const utf16 = new TextEncoder();
@@ -494,7 +496,7 @@ function decodeError(error: unknown): never { if (error instanceof WireError) th
 // external schemas or clone/protect objects supplied by a custom trusted caller.
 export function createPayloadCodec(metadata: unknown, registry: unknown = {}, checks:Checks = {}) {
   const meta = metadata as Payload, {schema} = meta, types = registry as Types;
-  if (!Number.isSafeInteger(meta.bytes) || meta.bytes < 0) fail('value');
+  if (!Number.isSafeInteger(meta.bytes) || meta.bytes < minimumPayloadBytes) fail('value');
   for (const value of [meta.nodes, meta.depth]) if (!Number.isSafeInteger(value) || value < 1) fail('value');
   admitMessageRoot(schema, types);
   return {
@@ -523,11 +525,12 @@ export function createCodec(metadata: unknown, registry: unknown = {}, checks:Ch
   for (const value of [meta.requestBytes, meta.responseBytes, meta.requestNodes, meta.responseNodes, meta.requestDepth, meta.responseDepth]) {
     if (!Number.isSafeInteger(value) || value < 1) fail('value');
   }
-  if (meta.requestBytes < 11 || meta.responseBytes < 11) fail('value');
+  const minimumFrameBytes = headerBytes + minimumPayloadBytes;
+  if (meta.requestBytes < minimumFrameBytes || meta.responseBytes < minimumFrameBytes) fail('value');
   admitMessageRoot(request, types);
   admitMessageRoot(response, types);
   function encode(value: unknown, direction: 0 | 1): Uint8Array {
-    const out = new Writer(direction ? meta.responseBytes : meta.requestBytes, 11);
+    const out = new Writer(direction ? meta.responseBytes : meta.requestBytes, headerBytes);
     out.header(id, direction);
     write(direction ? response : request, value, out, new Budget(direction ? meta.responseNodes : meta.requestNodes, direction ? meta.responseDepth : meta.requestDepth), 1, types,checks);
     return out.finish();
@@ -535,10 +538,10 @@ export function createCodec(metadata: unknown, registry: unknown = {}, checks:Ch
   function decode(bytes: Uint8Array, direction: 0 | 1): unknown {
     if (!(bytes instanceof Uint8Array)) return fail('value');
     if (bytes.length > (direction ? meta.responseBytes : meta.requestBytes)) return fail('limit');
-    if (bytes.length < 11) return fail('malformed');
+    if (bytes.length < headerBytes) return fail('malformed');
     if (bytes[0] !== 73 || bytes[1] !== 87 || bytes[10] !== direction) return fail('identity');
     try {
-      const input = new Reader(bytes, 11);
+      const input = new Reader(bytes, headerBytes);
       if (input.view.getBigUint64(2, true) !== id) return fail('identity');
       const budget = new Budget(direction ? meta.responseNodes : meta.requestNodes, direction ? meta.responseDepth : meta.requestDepth);
       const value = read(direction ? response : request, input, budget, 1, types,checks);

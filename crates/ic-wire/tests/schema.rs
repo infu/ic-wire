@@ -387,6 +387,7 @@ fn generated_payload_module_admits_names_policy_and_total_output() {
         );
     }
     for invalid in [
+        PayloadLimits { bytes: 0, ..limits },
         PayloadLimits { nodes: 0, ..limits },
         PayloadLimits { depth: 0, ..limits },
     ] {
@@ -516,6 +517,20 @@ fn method_modules_admit_identities_directions_and_bounded_source() {
         },
         Method {
             response: "Fixed",
+            ..method
+        },
+        Method {
+            request_limits: PayloadLimits {
+                bytes: 0,
+                ..method.request_limits
+            },
+            ..method
+        },
+        Method {
+            response_limits: PayloadLimits {
+                bytes: 0,
+                ..method.response_limits
+            },
             ..method
         },
         Method {

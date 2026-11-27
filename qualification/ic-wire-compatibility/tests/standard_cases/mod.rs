@@ -105,6 +105,75 @@ fn standard_shapes_preserve_prefixes_tags_and_traversal() {
         Err((128, true))
     );
 }
+
+#[test]
+fn projected_root_exchanges_fixed_struct_and_closed_enum() {
+    #[derive(Debug, PartialEq, Serialize, Deserialize, Wire)]
+    #[wire(crate = "wire", fixed)]
+    struct FixedPair {
+        pair: (u8, u16),
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize, Wire)]
+    #[wire(crate = "wire")]
+    enum FixedChoice {
+        Pair(u8, u16),
+        Named { value: u16 },
+    }
+
+    #[derive(Debug, PartialEq, Wire)]
+    #[wire(crate = "wire")]
+    struct Message {
+        fixed: FixedPair,
+        choice: FixedChoice,
+    }
+
+    let values = [
+        Message {
+            fixed: FixedPair { pair: (7, 128) },
+            choice: FixedChoice::Pair(9, 129),
+        },
+        Message {
+            fixed: FixedPair { pair: (7, 128) },
+            choice: FixedChoice::Named { value: 255 },
+        },
+    ];
+    let literals: [&[u8]; 2] = [&[7, 128, 1, 0, 9, 129, 1, 0], &[7, 128, 1, 1, 255, 1, 0]];
+    let rust_bytes: Vec<_> = values
+        .iter()
+        .map(|value| wire::encode(value, Encoding::Payload, limits()).unwrap())
+        .collect();
+    assert_eq!(rust_bytes, literals);
+
+    let module = ValidatedRegistry::from_type::<Message>("Message", SchemaLimits::default())
+        .unwrap()
+        .payload_module(
+            "codec",
+            "Message",
+            "./runtime-adapter.ts",
+            PayloadLimits {
+                bytes: 128,
+                nodes: 32,
+                depth: 8,
+            },
+            &Default::default(),
+            |report| eprint!("{report}"),
+        )
+        .unwrap();
+    let output: Vec<Vec<u8>> = serde_json::from_value(run_typescript(
+        &json!({"module": module, "rustBytes": rust_bytes}),
+        include_str!("fixed_layout_exchange.mjs"),
+    ))
+    .unwrap();
+    assert_eq!(output, literals);
+    for (bytes, value) in output.iter().zip(&values) {
+        assert_eq!(
+            &wire::decode::<Message>(bytes, Encoding::Payload, limits()).unwrap(),
+            value
+        );
+    }
+}
+
 mod bytes;
 mod floats;
 mod packed;

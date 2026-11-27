@@ -16,9 +16,11 @@ for(const test of fixture.cases) {
   assert.deepEqual(codec.encode(test.value),expected);
   assert.deepEqual(codec.decode(expected),test.value);
   for(const resource of ['bytes','nodes','depth']) {
-    if(meta[resource]>(resource==='bytes'?0:1)) {
+    if(meta[resource]>1) {
       const short=fieldCodec(createPayloadCodec, {...meta,[resource]:meta[resource]-1},fixture.types);
       refusal(()=>short.encode(test.value),'limit'); refusal(()=>short.decode(expected),'limit');
+    } else if(resource==='bytes') {
+      refusal(()=>fieldCodec(createPayloadCodec, {...meta,bytes:0},fixture.types),'value');
     }
   }
   for(const direction of ['Request','Response']) {
