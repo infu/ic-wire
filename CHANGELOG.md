@@ -25,6 +25,11 @@
   subtrees support ordinary records and tuples.
 - Reject browser byte limits that cannot fit an empty sparse root.
 
+### 🧪 Testing
+
+- Generate nested record and tuple values to check compatibility across schema
+  revisions, and fuzz recovery from unknown variants alongside malformed data.
+
 ## [0.31.1] - 2026-11-26
 
 ### 🔧 Changed

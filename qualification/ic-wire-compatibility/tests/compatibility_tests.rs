@@ -1,4 +1,6 @@
 //! Independent literal bytes, primitive rules and destination custody.
+mod evolution_compatibility_tests;
+mod evolution_recovery_tests;
 mod support;
 
 use serde::{Deserialize, Serialize};
