@@ -20,7 +20,7 @@ macro_rules! integer_list {
                     "Start with an ordinary list for mostly small values. Try Packed<",
                     $word,
                     ", N> for wide values or an IC instruction bottleneck. ",
-                    "Compare encoded_len on typical and worst-case inputs, preserve the field bound, ",
+                    "Compare message sizes on typical and worst-case inputs, preserve the field bound, ",
                     "and choose one layout for the schema."
                 )
             },
@@ -443,10 +443,11 @@ impl Walk<'_> {
                 }
                 self.child(*item, "/item", depth, None)?;
             }
-            Node::Array { item, .. } | Node::Option(item) | Node::Alias(item) => {
-                self.child(*item, "/item", depth, None)?
-            }
-            Node::Record(fields) => {
+            Node::Array { item, .. }
+            | Node::Option(item)
+            | Node::Recover(item)
+            | Node::Alias(item) => self.child(*item, "/item", depth, None)?,
+            Node::Record(fields) | Node::ExtensionRecord { fields, .. } => {
                 for (name, item) in fields {
                     self.child(
                         *item,
@@ -455,15 +456,35 @@ impl Walk<'_> {
                         owner.map(|record| (record, name.as_str())),
                     )?;
                 }
+                if let Node::ExtensionRecord { extensions, .. } = &self.graph.nodes[id] {
+                    for entry in extensions {
+                        self.child(
+                            entry.child,
+                            &format!("/extensions/{}", escape(&entry.name)),
+                            depth,
+                            owner.map(|record| (record, entry.name.as_str())),
+                        )?;
+                    }
+                }
             }
-            Node::Enum(variants) => {
+            Node::Enum(variants) | Node::OpenVariant { variants, .. } => {
                 for (name, _, item) in variants {
                     self.child(*item, &format!("/variants/{}", escape(name)), depth, None)?;
                 }
             }
-            Node::Tuple(items) => {
+            Node::Tuple(items) | Node::ExtensionTuple { items, .. } => {
                 for (index, item) in items.iter().enumerate() {
                     self.child(*item, &format!("/items/{index}"), depth, None)?;
+                }
+                if let Node::ExtensionTuple { extensions, .. } = &self.graph.nodes[id] {
+                    for entry in extensions {
+                        self.child(
+                            entry.child,
+                            &format!("/items/{}", entry.id - 1),
+                            depth,
+                            None,
+                        )?;
+                    }
                 }
             }
             Node::Result { ok, err } => {

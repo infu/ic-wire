@@ -3,7 +3,7 @@ name = "ic-wire"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license-file.workspace = true
+license.workspace = true
 publish = ["crates-io"]
 repository.workspace = true
 readme = "README.md"
@@ -16,7 +16,7 @@ ignored = ["toko-tooling"]
 service-client = ["typescript"]
 api-manifest = ["typescript"]
 platform-types = ["typescript", "dep:ic-platform-types"]
-derive = ["typescript", "dep:ic-wire-derive"]
+derive = ["dep:ic-wire-derive"]
 typescript = ["dep:serde_json"]
 
 [dependencies]

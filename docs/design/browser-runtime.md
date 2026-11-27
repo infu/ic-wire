@@ -31,6 +31,13 @@ allowances are not Rust allocation accounting or a process heap cap. Encoding
 grows bounded private output; it does not promise zero
 output allocation on invalid input. Trusted getters/proxies are not sandboxed.
 
+Sparse records and tuples charge one node at the slot depth for each absent
+optional slot. A missing required extension also spends one node before it
+marks incompatibility. Present or unfamiliar entries pay for their header,
+and recognized bodies pay their ordinary value charges. Filling optional slots
+from an empty block therefore consumes work allowance in proportion to the
+reader's schema.
+
 Qualification executes generated clients with the current bundled runtime,
 checks independent literal bytes and Rust decode results, and exercises malformed
 inputs and exact budgets. The runtime uses one BigInt varint path. Exhaustive

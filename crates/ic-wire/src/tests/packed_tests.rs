@@ -1,11 +1,12 @@
 //! Literal packed-field representation and admission contracts.
 
-use ic_wire::LimitKind;
-use ic_wire::{
-    Bytes, BytesRef, Direction, Encoding, Error, Limits, List, Packed, decode, encode, encode_into,
-    encode_to_slice,
+use crate::{
+    Bytes, BytesRef, Direction, Encoding, Error, LimitKind, Limits, List, Packed,
+    decode::decode,
+    encode::{encode, encode_into, encode_to_slice},
 };
 use serde::{Deserialize, Serialize};
+use std::{vec, vec::Vec};
 
 fn limits() -> Limits {
     Limits {

@@ -38,8 +38,8 @@ pub(super) async fn run(pic: &PocketIc, directory: &Path) -> Result<Vec<Value>, 
                     };
                     let prefix = |n: u64| u64::from(n >= 128) + u64::from(n >= 16384) + 1;
                     let expected = match codec {
-                        "ordinary" | "bounded" => prefix(len) + len + 4 * wide,
-                        "packed" => prefix(4 * len) + 4 * len,
+                        "ordinary" | "bounded" => prefix(len) + len + 4 * wide + 1,
+                        "packed" => prefix(4 * len) + 4 * len + 1,
                         _ => 9 + prefix(len) + 4 * len,
                     };
                     if payload != expected || encode == 0 || decode == 0 {

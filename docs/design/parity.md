@@ -6,7 +6,7 @@ or runtime is retained as a comparison oracle.
 
 | Area | Current contract |
 | --- | --- |
-| Portable codec | Root encode/decode APIs with explicit payload or frame selection |
+| Portable codec | Sparse message roots through typed and explicit projection APIs, with optional request/response framing |
 | Admission | Byte, allocation-charge, node and depth allowances; typed errors |
 | Fields | Explicit bytes, text, lists, borrowed views and generic packed words |
 | Domain adapters | Bool, finite floats, nonzero-i64 and heap-u64 Serde adapters |

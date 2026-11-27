@@ -3,7 +3,7 @@ name = "ic-wire-consumer"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-license-file.workspace = true
+license.workspace = true
 publish = false
 description = "Standalone portable request/response consumer for Wire qualification"
 
@@ -20,13 +20,16 @@ path = "src/bin/generate.rs"
 required-features = ["schema"]
 
 [features]
-schema = ["wire/derive"]
+schema = ["wire/typescript"]
 ic = ["dep:ic-platform-runtime"]
+evolution-qualification = ["schema", "wire/api-manifest"]
+evolution-b-only = []
+evolution-caller-buffer = []
 
 [dependencies]
 ic-platform-runtime = { workspace = true, optional = true, features = ["system-raw"] }
 serde.workspace = true
-wire.workspace = true
+wire = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 ic-platform-types.workspace = true
@@ -61,3 +64,24 @@ required-features = ["ic"]
 name = "generate-service"
 path = "examples/generate_service.rs"
 required-features = ["wire/service-client"]
+
+[[example]]
+name = "evolution-contract"
+path = "examples/evolution_contract/main.rs"
+required-features = ["evolution-qualification"]
+
+[[example]]
+name = "evolution-contract-ic"
+path = "examples/evolution_contract/guest.rs"
+crate-type = ["cdylib"]
+required-features = ["ic", "evolution-qualification"]
+
+[[example]]
+name = "evolution-reader-a"
+path = "examples/evolution_contract/reader_a.rs"
+required-features = ["evolution-qualification"]
+
+[[example]]
+name = "evolution-upgrade"
+path = "examples/evolution_contract/upgrade.rs"
+required-features = ["evolution-qualification"]

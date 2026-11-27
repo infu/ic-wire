@@ -1,9 +1,14 @@
 # Package verification and release
 
-The repository's product manifests and finalized changelog select **0.30.2** for
+The repository's product manifests and finalized changelog select **0.31.1** for
 `ic-wire` and `ic-wire-derive`. Qualification packages remain unpublished. Registry
 state establishes publication status; a changelog, historical approval or dry run
 does not authorize or prove a new upload.
+
+The 0.31.0 release updates Toko Tooling to 0.46.7. Platform Types 0.21.6 and
+the pending qualification updates to Platform Runtime 0.23.27, Testkit 0.110.5,
+Host Artifacts and FS 0.80.9, and Host Process 0.81.5 are deferred to the
+separate supplier update.
 
 The 0.30.2 qualification graph retains Platform Runtime 0.23.25. The newer
 0.23.26 selection is private qualification work and can be checked separately.

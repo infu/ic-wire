@@ -23,31 +23,62 @@ impl Budget {
         self.enter_many(depth, units, 1)
     }
 
+    // Projection steps do not allocate. Leave the allocation ledger untouched
+    // on success and reuse the full path for first-error classification.
+    #[inline(never)]
+    pub(super) fn enter_scope(&self, depth: usize) -> bool {
+        let nodes = self.nodes.get();
+        if depth <= self.depth && nodes != 0 && self.refused.get().is_none() {
+            self.nodes.set(nodes - 1);
+            true
+        } else {
+            self.enter(depth, 0)
+        }
+    }
+
+    #[inline(never)]
+    pub(super) fn enter_nested_scopes(&self, outer: usize, inner: usize) -> bool {
+        let nodes = self.nodes.get();
+        if inner <= self.depth && nodes >= 2 && self.refused.get().is_none() {
+            self.nodes.set(nodes - 2);
+            true
+        } else {
+            self.enter_scope(outer) && self.enter_scope(inner)
+        }
+    }
+
     // Keep one copy of the reason-selecting debit across codec visitors at opt-z.
     #[inline(never)]
     pub(super) fn enter_many(&self, depth: usize, units: usize, count: usize) -> bool {
         let nodes = self.nodes.get();
         let available = self.units.get();
-        if self.refused.get().is_some() {
-            return false;
-        }
-        let reason = if depth > self.depth {
-            Some(LimitKind::Depth)
-        } else if nodes < count {
-            Some(LimitKind::Nodes)
-        } else if available < units {
-            Some(LimitKind::Allocation)
+        if (depth <= self.depth)
+            & (nodes >= count)
+            & (available >= units)
+            & self.refused.get().is_none()
+        {
+            self.units.set(available - units);
+            self.nodes.set(nodes - count);
+            true
         } else {
-            None
-        };
-        if reason.is_some() {
-            self.refused.set(reason);
-            return false;
+            self.refuse_enter(depth, count);
+            false
         }
-        self.units.set(available - units);
-        self.nodes.set(nodes - count);
+    }
 
-        true
+    #[cold]
+    #[inline(never)]
+    fn refuse_enter(&self, depth: usize, count: usize) {
+        if self.refused.get().is_none() {
+            let reason = if depth > self.depth {
+                Some(LimitKind::Depth)
+            } else if self.nodes.get() < count {
+                Some(LimitKind::Nodes)
+            } else {
+                Some(LimitKind::Allocation)
+            };
+            self.refused.set(reason);
+        }
     }
 
     pub(super) fn refuse(&self) {
@@ -76,5 +107,30 @@ impl Budget {
 
     pub(super) fn error(&self) -> Error {
         self.refused.get().map_or(Error::Malformed, Error::Limit)
+    }
+
+    pub(super) fn check(&self) -> Result<(), Error> {
+        self.refused
+            .get()
+            .map_or(Ok(()), |kind| Err(Error::Limit(kind)))
+    }
+
+    pub(super) fn refuse_with(&self, kind: LimitKind) -> Error {
+        let first = self.refused.get().unwrap_or(kind);
+        self.refused.set(Some(first));
+        Error::Limit(first)
+    }
+
+    pub(super) fn scratch_headroom(&self) -> usize {
+        self.units.get() * 8
+    }
+
+    // A failed projection dropped its temporary views. Its visits still
+    // count, and heap scratch is handled by the caller's checkpoint.
+    pub(super) fn resume_after_scratch(&self, allocation_checkpoint: usize) {
+        if self.refused.get() == Some(LimitKind::Scratch) {
+            self.units.set(allocation_checkpoint / 8);
+            self.refused.set(None);
+        }
     }
 }

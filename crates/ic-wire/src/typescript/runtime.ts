@@ -4,9 +4,11 @@
 export const schemaFormat = 'ic-wire-json';
 export class WireError extends Error {
   override name = 'WireError';
-  constructor(readonly code: 'limit' | 'malformed' | 'identity' | 'value') { super(`wire ${code}`); }
+  constructor(readonly code: 'limit' | 'malformed' | 'identity' | 'value' | 'incompatible') { super(`wire ${code}`); }
 }
 type Field = { name: string; value: Schema };
+type Variant = Field & { id: number };
+type Extension = Variant & { required: boolean };
 export type Schema = ({ k: 'unit' | 'bool' }
   | { k: 'u' | 'i'; bits: number; min?: number; max?: number }
   | { k: 'float'; bits: number; min?: number; max?: number }
@@ -17,16 +19,22 @@ export type Schema = ({ k: 'unit' | 'bool' }
   | { k: 'packed'; max?: number; word: Exclude<keyof typeof packedArrays, 'i64'>; nonzero?: never }
   | { k: 'list'; item: Schema; max?: number }
   | { k: 'array'; item: Schema; max: number }
-  | { k: 'tuple'; items: readonly Schema[] }
+  | { k: 'tuple'; items: readonly Schema[]; fixed?: true }
   | { k: 'result'; ok: Schema; err: Schema }
   | { k: 'option' | 'newtype'; item: Schema }
-  | { k: 'record'; fields: readonly Field[] }
-  | { k: 'enum'; variants: readonly (Field & { id: number })[] }
+  | { k: 'recover'; item: Schema }
+  | { k: 'record'; fields: readonly Field[]; fixed?: true }
+  | { k: 'extension-record'; fields: readonly Field[]; extensions: readonly Extension[]; projected?: true }
+  | { k: 'extension-tuple'; items: readonly Schema[]; extensions: readonly Extension[]; projected?: true }
+  | { k: 'enum'; variants: readonly Variant[] }
+  | { k: 'open-variant'; variants: readonly Variant[]; required?: boolean }
   | { k: 'ref'; name: string }) & {check?:string};
 export type Checks=Readonly<Record<string,(value:unknown)=>void>>;
 type Types = Readonly<Record<string, Schema>>;
 type Payload = { schema: Schema; bytes: number; nodes: number; depth: number };
 type Method = { id: string; request: Schema; response: Schema; requestBytes: number; responseBytes: number; requestNodes: number; responseNodes: number; requestDepth: number; responseDepth: number };
+const headerBytes = 11;
+const minimumPayloadBytes = 1; // Length prefix of an empty sparse root block.
 const fail = (code: WireError['code']): never => { throw new WireError(code); };
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const utf16 = new TextEncoder();
@@ -50,6 +58,8 @@ function object(value: unknown, keys: readonly (string | Field)[]): Record<strin
   return value as Record<string, unknown>;
 }
 class Budget {
+  // Count deferred incompatibilities separately from resource refusal.
+  incompatible = 0;
   constructor(public remaining: number, readonly depth: number) {}
   visit(depth: number) { if (--this.remaining < 0 || depth > this.depth) fail('limit'); }
   length(length: number) { if (length > this.remaining) fail('limit'); }
@@ -67,6 +77,25 @@ function resolve(schema: Schema, types: Types, visit?: (schema:Schema)=>void): S
   }
   visit?.(schema);
   return schema;
+}
+function admitMessageRoot(schema: Schema, types: Types): void {
+  // Inspect the shape without dropping wrapper visits or custom checks
+  // during the actual encode/decode.
+  const visited = new Set<Schema>();
+  for (;;) {
+    if (!schema || typeof schema !== 'object' || visited.has(schema)) return fail('value');
+    if (schema.k === 'extension-record' || schema.k === 'extension-tuple') return;
+    visited.add(schema);
+    if (schema.k === 'newtype') {
+      schema = schema.item;
+    } else if (schema.k === 'ref' && Object.hasOwn(types, schema.name)) {
+      const next = types[schema.name];
+      if (next === undefined) return fail('value');
+      schema = next;
+    } else {
+      return fail('value');
+    }
+  }
 }
 function validate(schema:Schema,value:unknown,checks:Checks):void {
   if(schema.check!==undefined) {
@@ -95,6 +124,21 @@ class Writer {
     if (bytes.length > this.bytes.length - this.offset) this.grow(this.offset + bytes.length);
     this.bytes.set(bytes, this.offset); this.offset += bytes.length;
   }
+  prefix(start: number, first: number, second?: number) {
+    const width = (value: number) => {
+      if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) return fail('limit');
+      return Math.max(1, Math.ceil((32 - Math.clz32(value)) / 7));
+    };
+    const length = width(first) + (second === undefined ? 0 : width(second));
+    const end = this.offset + length;
+    if (!Number.isSafeInteger(end)) fail('limit');
+    if (end > this.bytes.length) this.grow(end);
+    this.bytes.copyWithin(start + length, start, this.offset);
+    this.offset = start;
+    this.varint(BigInt(first));
+    if (second !== undefined) this.varint(BigInt(second));
+    this.offset = end;
+  }
   finish(): Uint8Array { return this.offset === this.bytes.length ? this.bytes : this.bytes.slice(0, this.offset); }
 }
 class Reader {
@@ -118,6 +162,25 @@ class Reader {
     if (length > this.bytes.length - this.offset) return fail('malformed');
     const span = this.bytes.subarray(this.offset, this.offset + length); this.offset += length; return span;
   }
+  skip(length: number) {
+    if (length > this.bytes.length - this.offset) fail('malformed');
+    this.offset += length;
+  }
+}
+function writeExtensions(
+  extensions: readonly Extension[], member: (field: Extension) => unknown,
+  out: Writer, budget: Budget, depth: number, child: (schema: Schema, value: unknown) => void,
+) {
+  const start = out.offset;
+  for (const field of extensions) {
+    budget.visit(depth + 1);
+    const value = member(field);
+    if (!field.required && value === null) continue;
+    const body = out.offset;
+    child(field.value, field.required ? value : object(value, ['some']).some);
+    out.prefix(body, field.id, out.offset - body);
+  }
+  out.prefix(start, out.offset - start);
 }
 function write(schema: Schema, value: unknown, out: Writer, budget: Budget, depth: number, types: Types, checks:Checks): void {
   budget.visit(depth);
@@ -202,6 +265,15 @@ function write(schema: Schema, value: unknown, out: Writer, budget: Budget, dept
       if (value === null) { out.byte(0); return; }
       const record = object(value, ['some']); out.byte(1); child(s.item, record.some); return;
     }
+    case 'recover': {
+      if (value === null) { out.byte(0); return; }
+      const record = object(value, ['some']);
+      out.byte(1);
+      const start = out.offset;
+      child(s.item, record.some);
+      out.prefix(start, out.offset - start);
+      return;
+    }
     case 'result': {
       const key = value && typeof value === 'object' && Object.hasOwn(value, 'ok') ? 'ok' : 'err';
       const record = object(value, [key]); out.byte(key === 'ok' ? 0 : 1); child(s[key], record[key]); return;
@@ -211,18 +283,89 @@ function write(schema: Schema, value: unknown, out: Writer, budget: Budget, dept
       for (const field of s.fields) child(field.value, record[field.name]);
       return;
     }
+    case 'extension-record': {
+      budget.length(s.fields.length + s.extensions.length);
+      const record = object(value, [...s.fields, ...s.extensions]);
+      for (const field of s.fields) child(field.value, record[field.name]);
+      writeExtensions(s.extensions, field => record[field.name], out, budget, depth, child);
+      return;
+    }
+    case 'extension-tuple': {
+      if (!Array.isArray(value) || value.length !== s.items.length + s.extensions.length) return fail('value');
+      budget.length(value.length);
+      let index = 0;
+      for (const item of s.items) {
+        if (!Object.hasOwn(value, index)) fail('value');
+        child(item, value[index++]);
+      }
+      writeExtensions(s.extensions, field => {
+        const index = field.id - 1;
+        if (!Object.hasOwn(value, index)) return fail('value');
+        return value[index];
+      }, out, budget, depth, child);
+      return;
+    }
     case 'enum': {
       const record = object(value, ['tag', 'value']), variant = s.variants.find(v => v.name === record.tag);
       if (!variant) return fail('value');
       out.varint(BigInt(variant.id)); child(variant.value, record.value); return;
     }
+    case 'open-variant': {
+      if (value === null && !s.required) { out.byte(0); return; }
+      const record = object(value, ['tag', 'value']), variant = s.variants.find(v => v.name === record.tag);
+      if (!variant) return fail('value');
+      const body = out.offset;
+      child(variant.value, record.value);
+      const length = out.offset - body;
+      out.prefix(body, variant.id * 2 + Number(length !== 0), length || undefined);
+      return;
+    }
     default: return fail('value');
   }
 }
 function read(schema: Schema, input: Reader, budget: Budget, depth: number, types: Types, checks:Checks): unknown {
+  const before = budget.incompatible;
   const value=readValue(resolve(schema,types),input,budget,depth,types,checks);
-  resolve(schema,types,schema=>validate(schema,value,checks));
+  // A deferred incompatibility leaves no value for checks on its incomplete ancestors.
+  if (budget.incompatible === before) resolve(schema,types,schema=>validate(schema,value,checks));
   return value;
+}
+function readSpan(schema: Schema, span: Uint8Array, budget: Budget, depth: number, types: Types, checks: Checks): unknown {
+  const input = new Reader(span);
+  const value = read(schema, input, budget, depth, types, checks);
+  if (input.offset !== span.length) fail('malformed');
+  return value;
+}
+function readExtensions(
+  extensions: readonly Extension[], input: Reader, budget: Budget, depth: number,
+  types: Types, checks: Checks, put: (field: Extension, value: unknown) => void,
+) {
+  const entries = new Reader(input.raw(Number(input.varint(32))));
+  let previous = 0, index = 0, missingRequired = false;
+  function absent(field: Extension) {
+    budget.visit(depth + 1);
+    if (field.required) missingRequired = true;
+    else put(field, null);
+  }
+  while (entries.offset < entries.bytes.length) {
+    budget.visit(depth + 1);
+    const id = Number(entries.varint(32));
+    if (id <= previous) fail('malformed');
+    previous = id;
+    const length = Number(entries.varint(32));
+    let field = extensions[index];
+    while (field && field.id < id) {
+      absent(field);
+      field = extensions[++index];
+    }
+    if (field?.id === id) {
+      const value = readSpan(field.value, entries.raw(length), budget, depth + 1, types, checks);
+      put(field, field.required ? value : { some: value });
+      index++;
+    } else entries.skip(length);
+  }
+  for (; index < extensions.length; index++) absent(extensions[index]!);
+  if (missingRequired) budget.incompatible++;
 }
 function readValue(schema: Schema, input: Reader, budget: Budget, depth: number, types: Types, checks:Checks): unknown {
   // The wrapper resolves aliases before charging the concrete value.
@@ -287,6 +430,15 @@ function readValue(schema: Schema, input: Reader, budget: Budget, depth: number,
       const tag = input.byte(); if (tag === 0) return null; if (tag !== 1) return fail('malformed');
       return { some: child(s.item) };
     }
+    case 'recover': {
+      const tag = input.byte(); if (tag === 0) return null; if (tag !== 1) return fail('malformed');
+      const before = budget.incompatible;
+      const span = input.raw(Number(input.varint(32)));
+      const value = readSpan(s.item, span, budget, depth + 1, types, checks);
+      if (budget.incompatible === before) return { some: value };
+      budget.incompatible = before;
+      return null;
+    }
     case 'result': {
       const tag = input.varint(32); if (tag > 1n) return fail('malformed');
       return tag === 0n ? { ok: child(s.ok) } : { err: child(s.err) };
@@ -296,10 +448,44 @@ function readValue(schema: Schema, input: Reader, budget: Budget, depth: number,
       for (const field of s.fields) value[field.name] = child(field.value);
       return value;
     }
+    case 'extension-record': {
+      const value = Object.create(null) as Record<string, unknown>;
+      for (const field of s.fields) value[field.name] = child(field.value);
+      readExtensions(s.extensions, input, budget, depth, types, checks, (field, member) => {
+        value[field.name] = member;
+      });
+      return value;
+    }
+    case 'extension-tuple': {
+      budget.length(s.items.length);
+      const value: unknown[] = [];
+      for (const item of s.items) value.push(child(item));
+      readExtensions(s.extensions, input, budget, depth, types, checks, (field, member) => {
+        value[field.id - 1] = member;
+      });
+      return value;
+    }
     case 'enum': {
       const id = Number(input.varint(32)), variant = s.variants.find(v => v.id === id);
       if (!variant) return fail('malformed');
       return { tag: variant.name, value: child(variant.value) };
+    }
+    case 'open-variant': {
+      const head = Number(input.varint(32));
+      if (head === 0) return s.required ? fail('malformed') : null;
+      if (head === 1) return fail('malformed');
+      const hasPayload = head % 2 === 1;
+      const length = hasPayload ? Number(input.varint(32)) : 0;
+      if (hasPayload && length === 0) return fail('malformed');
+      const id = Math.floor(head / 2);
+      const variant = s.variants.find(v => v.id === id);
+      if (!variant) {
+        budget.visit(depth + 1);
+        input.skip(length);
+        if (s.required) budget.incompatible++;
+        return null;
+      }
+      return { tag: variant.name, value: readSpan(variant.value, input.raw(length), budget, depth + 1, types, checks) };
     }
     default: return fail('value');
   }
@@ -309,13 +495,14 @@ function decodeError(error: unknown): never { if (error instanceof WireError) th
 // Factories consume generated private metadata. They do not validate arbitrary
 // external schemas or clone/protect objects supplied by a custom trusted caller.
 export function createPayloadCodec(metadata: unknown, registry: unknown = {}, checks:Checks = {}) {
-  const meta = metadata as Payload, types = registry as Types;
-  if (!Number.isSafeInteger(meta.bytes) || meta.bytes < 0) fail('value');
+  const meta = metadata as Payload, {schema} = meta, types = registry as Types;
+  if (!Number.isSafeInteger(meta.bytes) || meta.bytes < minimumPayloadBytes) fail('value');
   for (const value of [meta.nodes, meta.depth]) if (!Number.isSafeInteger(value) || value < 1) fail('value');
+  admitMessageRoot(schema, types);
   return {
     encode(value: unknown): Uint8Array {
       const out = new Writer(meta.bytes);
-      write(meta.schema, value, out, new Budget(meta.nodes, meta.depth), 1, types,checks);
+      write(schema, value, out, new Budget(meta.nodes, meta.depth), 1, types,checks);
       return out.finish();
     },
     decode(bytes: Uint8Array): unknown {
@@ -323,36 +510,43 @@ export function createPayloadCodec(metadata: unknown, registry: unknown = {}, ch
       if (bytes.length > meta.bytes) return fail('limit');
       try {
         const input = new Reader(bytes);
-        const value = read(meta.schema, input, new Budget(meta.nodes, meta.depth), 1, types,checks);
+        const budget = new Budget(meta.nodes, meta.depth);
+        const value = read(schema, input, budget, 1, types,checks);
         if (input.offset !== bytes.length) return fail('malformed');
+        if (budget.incompatible !== 0) return fail('incompatible');
         return value;
       } catch (error) { return decodeError(error); }
     }
   };
 }
 export function createCodec(metadata: unknown, registry: unknown = {}, checks:Checks = {}) {
-  const meta = metadata as Method, types = registry as Types, id = BigInt(meta.id);
+  const meta = metadata as Method, {request, response} = meta, types = registry as Types, id = BigInt(meta.id);
   if (id < 0n || id >= (1n << 64n)) fail('value');
   for (const value of [meta.requestBytes, meta.responseBytes, meta.requestNodes, meta.responseNodes, meta.requestDepth, meta.responseDepth]) {
     if (!Number.isSafeInteger(value) || value < 1) fail('value');
   }
-  if (meta.requestBytes < 11 || meta.responseBytes < 11) fail('value');
+  const minimumFrameBytes = headerBytes + minimumPayloadBytes;
+  if (meta.requestBytes < minimumFrameBytes || meta.responseBytes < minimumFrameBytes) fail('value');
+  admitMessageRoot(request, types);
+  admitMessageRoot(response, types);
   function encode(value: unknown, direction: 0 | 1): Uint8Array {
-    const out = new Writer(direction ? meta.responseBytes : meta.requestBytes, 11);
+    const out = new Writer(direction ? meta.responseBytes : meta.requestBytes, headerBytes);
     out.header(id, direction);
-    write(direction ? meta.response : meta.request, value, out, new Budget(direction ? meta.responseNodes : meta.requestNodes, direction ? meta.responseDepth : meta.requestDepth), 1, types,checks);
+    write(direction ? response : request, value, out, new Budget(direction ? meta.responseNodes : meta.requestNodes, direction ? meta.responseDepth : meta.requestDepth), 1, types,checks);
     return out.finish();
   }
   function decode(bytes: Uint8Array, direction: 0 | 1): unknown {
     if (!(bytes instanceof Uint8Array)) return fail('value');
     if (bytes.length > (direction ? meta.responseBytes : meta.requestBytes)) return fail('limit');
-    if (bytes.length < 11) return fail('malformed');
+    if (bytes.length < headerBytes) return fail('malformed');
     if (bytes[0] !== 73 || bytes[1] !== 87 || bytes[10] !== direction) return fail('identity');
     try {
-      const input = new Reader(bytes, 11);
+      const input = new Reader(bytes, headerBytes);
       if (input.view.getBigUint64(2, true) !== id) return fail('identity');
-      const value = read(direction ? meta.response : meta.request, input, new Budget(direction ? meta.responseNodes : meta.requestNodes, direction ? meta.responseDepth : meta.requestDepth), 1, types,checks);
+      const budget = new Budget(direction ? meta.responseNodes : meta.requestNodes, direction ? meta.responseDepth : meta.requestDepth);
+      const value = read(direction ? response : request, input, budget, 1, types,checks);
       if (input.offset !== bytes.length) return fail('malformed');
+      if (budget.incompatible !== 0) return fail('incompatible');
       return value;
     } catch (error) { return decodeError(error); }
   }

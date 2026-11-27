@@ -1,12 +1,13 @@
-use super::{limits, run_typescript};
+use super::{grouped_messages, limits, run_typescript};
+use crate::support::{decode, encode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{borrow::Cow, collections::BTreeMap};
+use wire::Encoding;
 use wire::typescript::{Method, PayloadLimits, SchemaLimits, ValidatedRegistry, Wire};
-use wire::{Encoding, decode, encode};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Wire)]
-#[wire(crate = "wire")]
+#[wire(crate = "wire", fixed)]
 struct Pair(u8, u16);
 #[derive(Debug, PartialEq, Serialize, Deserialize, Wire)]
 #[wire(crate = "wire")]
@@ -33,24 +34,33 @@ fn standard_shapes_preserve_prefixes_tags_and_traversal() {
         types["Outcome"],
         json!({"k":"result","ok":{"k":"array","max":2,"item":{"k":"u","bits":8}},"err":{"k":"tuple","items":[{"k":"u","bits":16},{"k":"bool"}]}})
     );
-    let graph = ValidatedRegistry::from_metadata(&types, SchemaLimits::default()).unwrap();
+    let graph =
+        ValidatedRegistry::from_metadata(&grouped_messages(types.clone()), SchemaLimits::default())
+            .unwrap();
     let policy = PayloadLimits {
         bytes: 128,
         nodes: 32,
         depth: 8,
     };
-    let methods: Vec<_> = ["Outcome", "Pair", "Choice", "Slice", "Text", "EmptyArray"]
-        .into_iter()
-        .enumerate()
-        .map(|(index, name)| Method {
-            export: ["outcome", "pair", "choice", "slice", "text", "emptyArray"][index],
-            id: index as u64 + 1,
-            request: name,
-            response: name,
-            request_limits: policy,
-            response_limits: policy,
-        })
-        .collect();
+    let methods: Vec<_> = [
+        "MessageOutcome",
+        "MessagePair",
+        "MessageChoice",
+        "MessageSlice",
+        "MessageText",
+        "MessageEmptyArray",
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, name)| Method {
+        export: ["outcome", "pair", "choice", "slice", "text", "emptyArray"][index],
+        id: index as u64 + 1,
+        request: name,
+        response: name,
+        request_limits: policy,
+        response_limits: policy,
+    })
+    .collect();
     let cases = json!([
         {"method":"outcome","root":"Outcome","value":{"ok":[0,255]},"bytes":[0,0,255],"nodes":4,"depth":3},
         {"method":"outcome","root":"Outcome","value":{"err":[128,true]},"bytes":[1,128,1,1],"nodes":4,"depth":3},
@@ -61,7 +71,7 @@ fn standard_shapes_preserve_prefixes_tags_and_traversal() {
         {"method":"text","root":"Text","value":"é","bytes":[2,195,169],"nodes":1,"depth":1},
         {"method":"emptyArray","root":"EmptyArray","value":[],"bytes":[],"nodes":1,"depth":1}
     ]);
-    let fixture = json!({"types":types,"cases":cases,"module":graph.payload_module("outcomePayload","Outcome","./runtime-adapter.ts",policy, &Default::default(), |report| eprint!("{report}")).unwrap(),"frameModule":graph.method_module(&methods,"./runtime-adapter.ts", &Default::default(), |report| eprint!("{report}")).unwrap()});
+    let fixture = json!({"types":types,"cases":cases,"module":graph.payload_module("outcomePayload","MessageOutcome","./runtime-adapter.ts",policy, &Default::default(), |report| eprint!("{report}")).unwrap(),"frameModule":graph.method_module(&methods,"./runtime-adapter.ts", &Default::default(), |report| eprint!("{report}")).unwrap()});
     let output: Vec<Vec<u8>> =
         serde_json::from_value(run_typescript(&fixture, include_str!("exchange.mjs"))).unwrap();
     macro_rules! check {
@@ -87,14 +97,83 @@ fn standard_shapes_preserve_prefixes_tags_and_traversal() {
     check!(7, [u8; 0], []);
     // Result tags are u32 varints, not the single-byte Option discriminator.
     assert_eq!(
-        decode::<Outcome>(&[128, 0, 0, 255], Encoding::Payload, limits()).unwrap(),
+        decode::<Outcome>(&[128, 0, 0, 255, 0], Encoding::Payload, limits()).unwrap(),
         Ok([0, 255])
     );
     assert_eq!(
-        decode::<Outcome>(&[129, 0, 128, 1, 1], Encoding::Payload, limits()).unwrap(),
+        decode::<Outcome>(&[129, 0, 128, 1, 1, 0], Encoding::Payload, limits()).unwrap(),
         Err((128, true))
     );
 }
+
+#[test]
+fn projected_root_exchanges_fixed_struct_and_closed_enum() {
+    #[derive(Debug, PartialEq, Serialize, Deserialize, Wire)]
+    #[wire(crate = "wire", fixed)]
+    struct FixedPair {
+        pair: (u8, u16),
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize, Wire)]
+    #[wire(crate = "wire")]
+    enum FixedChoice {
+        Pair(u8, u16),
+        Named { value: u16 },
+    }
+
+    #[derive(Debug, PartialEq, Wire)]
+    #[wire(crate = "wire")]
+    struct Message {
+        fixed: FixedPair,
+        choice: FixedChoice,
+    }
+
+    let values = [
+        Message {
+            fixed: FixedPair { pair: (7, 128) },
+            choice: FixedChoice::Pair(9, 129),
+        },
+        Message {
+            fixed: FixedPair { pair: (7, 128) },
+            choice: FixedChoice::Named { value: 255 },
+        },
+    ];
+    let literals: [&[u8]; 2] = [&[7, 128, 1, 0, 9, 129, 1, 0], &[7, 128, 1, 1, 255, 1, 0]];
+    let rust_bytes: Vec<_> = values
+        .iter()
+        .map(|value| wire::encode(value, Encoding::Payload, limits()).unwrap())
+        .collect();
+    assert_eq!(rust_bytes, literals);
+
+    let module = ValidatedRegistry::from_type::<Message>("Message", SchemaLimits::default())
+        .unwrap()
+        .payload_module(
+            "codec",
+            "Message",
+            "./runtime-adapter.ts",
+            PayloadLimits {
+                bytes: 128,
+                nodes: 32,
+                depth: 8,
+            },
+            &Default::default(),
+            |report| eprint!("{report}"),
+        )
+        .unwrap();
+    let output: Vec<Vec<u8>> = serde_json::from_value(run_typescript(
+        &json!({"module": module, "rustBytes": rust_bytes}),
+        include_str!("fixed_layout_exchange.mjs"),
+    ))
+    .unwrap();
+    assert_eq!(output, literals);
+    for (bytes, value) in output.iter().zip(&values) {
+        assert_eq!(
+            &wire::decode::<Message>(bytes, Encoding::Payload, limits()).unwrap(),
+            value
+        );
+    }
+}
+
 mod bytes;
 mod floats;
 mod packed;

@@ -76,24 +76,26 @@ selects frames. `method_id` hashes UTF-8 `ic-wire:method:` plus the exact export
 name with FNV-1a-64. This is routing identity, not authentication or a schema hash.
 Host method generation rejects duplicate IDs and export names.
 
-The root API exposes `encoded_len`, `encode`, `encode_into`, `encode_to_slice`,
-`decode` and `validate_request_header`. Field/variant order, Serde attributes and
-adapter selection are protocol inputs. Accepted redundant varints and Postcard
-char behavior are covered by explicit tests; decode is not a canonicality proof.
+Every message has a sparse root. The typed Rust APIs `encode`, `encode_into`
+and `decode` require an evolving declaration. `encode_to_slice` uses the
+root projection supplied by the `Wire` derive. Untagged fields form the
+positional core. A fixed subtree may use ordinary Serde layout inside that
+core. For open variants, recovery boundaries and custom staging, the explicit
+projection API takes a `Projected` value with a root extension block.
 
-- Owned encoding returns a complete buffer after sizing/admission.
-- Reusable Vec output is empty on error; capacity retention is not promised.
-- Slice encoding rejects short storage before writing. Other failures may modify
-  storage; only a successful returned prefix may be published.
-- Decode accepts exactly one value and rejects trailing input. Borrowed views
-  refer to the selected input and retain its lifetime.
-- Fixed-header validation checks identity/direction only, without payload,
-  authentication or resource validation.
+- The owned path sizes and admits the projected value before reserving output.
+  Reusable output is empty on error.
+- Typed encoders manage temporary extension storage. Heap scratch capacity is
+  charged separately from the final output reservation.
+- The slice path writes within the smaller of the destination and byte
+  allowances. Only the returned prefix on success contains a complete message.
+- Decoding consumes the complete message. Borrowed views retain the input
+  lifetime. Known nested fields share the message meter.
+- `validate_request_header` checks method and direction independently of the
+  decoder and application authentication.
 
-Custom serializers must be deterministic across passes. Second-pass writes stay
-within admitted storage even if trusted code changes behavior. There is no cached
-prepared-encoding token. A scratch/callback helper remains excluded without a
-named caller needing its distinct lifetime contract.
+Custom serializers remain trusted and must be deterministic across passes.
+The bounded serializer keeps writes within the admitted destination.
 
 ## Admission and fields
 
@@ -149,6 +151,13 @@ Wide integers use BigInt; selected input spans, strict object shapes, UTF-8 and
 owned bulk results are qualified separately. Named synchronous checks and
 getters/proxies are trusted work outside the traversal budget. Consumer Serde
 owns matching Rust domain constraints.
+
+The [evolution contract](design/evolution.md) defines explicit
+record fields and tuple tails, stable open cases and optional recovery scopes
+inside messages. Typed methods reserve an extension block at both
+roots and in nested derived values. The derive composes nested preparation and
+projection under each frame's meter. Host tooling checks emitted manifests
+against prior schemas in the request and reply directions.
 
 ## Qualification and performance limits
 

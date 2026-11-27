@@ -1,16 +1,18 @@
 # IC Wire
 
-Bounded Serde/Postcard encoding with optional schema collection, bulk-field
-advice and generated TypeScript clients. The codec is `no_std` with `alloc`,
+Evolvable messages over bounded Serde/Postcard, with optional schema collection,
+bulk-field advice and generated TypeScript clients. The codec is `no_std` with `alloc`,
 Wasm-safe and independent of IC SDKs. Rust 1.100.0 is the compiler floor and the
 pinned development toolchain.
 
-The product crates are `ic-wire` and `ic-wire-derive`, both version **0.30.2**.
+The product crates are `ic-wire` and `ic-wire-derive`, both version **0.31.1**.
 Start with the [package guide](crates/ic-wire/README.md) for installation, a Rust
 round trip, feature flags and TypeScript delivery.
 
 - One `Encoding` selection covers payloads and request/response frames.
-- Owned, reusable `Vec` and caller-slice outputs share sizing and admission.
+- Every message has a sparse root. Fixed positional layouts are available inside
+  messages.
+- Owned, reusable `Vec` and caller-slice outputs share bounded field admission.
 - Explicit byte, text, list and packed fields retain consumer-selected layouts.
 - Optional schema collection and derive feed one validated graph and one
   bundled TypeScript interpreter. No default features are enabled.
@@ -22,16 +24,16 @@ they are not a process heap cap. Custom Serde work remains trusted. Preserve
 original bytes for signing, hashing and retries because decode/re-encode may
 normalize collections or accepted noncanonical encodings.
 
-The 0.24 API is a hard cut from 0.22: use root-level operations with `Encoding`,
-use `Packed<T, N>` for bounded packed fields, and regenerate clients and runtime
-together. There is no legacy fallback reader or automatic storage migration.
+The pending evolution release changes the public byte contract. Derive `Wire`
+on message types, then regenerate clients and runtime together. Persisted bytes
+and hash inputs belong to their owning applications.
 
 ## Repository map
 
 | Path | Responsibility |
 | --- | --- |
 | `crates/ic-wire/` | Portable codec, field adapters and optional schema tooling |
-| `crates/ic-wire-derive/` | Strict schema derive; does not generate serialization |
+| `crates/ic-wire-derive/` | Typed message projections and optional schema metadata |
 | `qualification/` | Private contract tests and standalone consumer workspace |
 | `qualification/ic-wire-instructions/` | Private native simulator driver |
 | `vendor/toko-tooling/` | Snapshot-owned tooling; no local edits |
@@ -72,7 +74,7 @@ sequence:
 
 | Scope | Commands |
 | --- | --- |
-| One codec contract | `cargo test -p ic-wire --test encode_tests --locked` (replace the test name as needed) |
+| One codec contract | `cargo test -p ic-wire --lib tests::encode_tests --locked` (replace the test name as needed) |
 | Native schema checks | `make test-host`, `make lint-host`, `make doc-host` |
 | Strict derive | `make test-derive`, `make lint-derive` |
 | Allocation admission | `make test-allocation` |
@@ -100,13 +102,14 @@ measurement commands; see [qualification](qualification/README.md) for their
 prerequisites and evidence limits. IC measurements additionally require explicitly
 selecting PocketIC.
 
-Toko Tooling **0.46.4** is installed through its authenticated published exporter.
+Toko Tooling **0.46.7** is installed through its authenticated published exporter.
 `.toko-tooling.snapshot` records source identity and owned bytes.
 `make snapshot-check` verifies only installed bytes; `make toko-tooling-check`
 also admits product declarations and Cargo.lock. `make qualification-tooling-check`
 checks all qualification members against the same snapshot.
 
-`make deps-list` and `make deps-update` include both maintained workspaces by
+`make deps-list` lists product packages. Add `DEPENDENCY_MANIFEST=qualification/Cargo.toml` to include qualification packages.
+`make deps-update` includes both maintained workspaces by
 default. Updates accept `DEPENDENCY_PACKAGE` and, with it, `DEPENDENCY_PRECISE`.
 Ordinary registry libraries use compatible version requirements. Exact pins are
 limited to the coordinated Wire derive/runtime pair and the Toko Tooling snapshot; [reasons](AGENTS.md#dependency-selection)
@@ -133,8 +136,17 @@ publication and deployment remain separately selected operations.
 - [Current feature scope](docs/design/parity.md)
 - [Performance measurement scope](docs/design/performance.md)
 - [Package/browser verification and release procedure](docs/release.md)
-- [Changelog](CHANGELOG.md) and [Toko Studios Network Licence 1.1](LICENSE.md)
+- [Changelog](CHANGELOG.md) and [Apache License 2.0](LICENSE.md)
 
 Measurements apply to their recorded workloads and source hashes. Current-only
 Wasm size and IC instruction runners report costs separately; correctness checks
 do not establish performance.
+
+## Licensing
+
+Wire's first-party source in this tree, including both product crates and the
+bundled TypeScript runtime, uses the [Apache License 2.0](LICENSE.md) beginning
+with release 0.31.1. The published 0.31.0 archives carry their
+original licence. The installed Toko Tooling baseline and vendored tools are
+covered by the [Toko Tooling licence](LICENSES/toko-tooling.md). External
+dependencies retain their respective licences.

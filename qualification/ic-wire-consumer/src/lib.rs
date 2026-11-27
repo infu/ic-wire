@@ -3,7 +3,6 @@
 #![no_std]
 extern crate alloc;
 use alloc::{string::String, vec::Vec};
-use serde::{Deserialize, Serialize};
 pub use wire::{Bytes, Error, Limits, List, Text};
 
 /// Bounded packed application sample field.
@@ -21,18 +20,14 @@ pub const REQUEST_LIMITS: Limits = Limits {
 /// Complete response frame and native traversal allowances.
 pub const RESPONSE_LIMITS: Limits = Limits {
     bytes: 32,
-    allocation: 1024,
-    nodes: 32,
+    allocation: 2112,
+    nodes: 36,
     depth: 8,
 };
 
 /// Application's explicit field representations; ordinary tags stay a list.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "schema",
-    derive(wire::typescript::Wire),
-    wire(crate = "wire")
-)]
+#[derive(Debug, PartialEq, wire::Wire)]
+#[wire(crate = "wire")]
 pub struct Upload {
     /// Expected application revision.
     pub revision: u64,
@@ -46,12 +41,8 @@ pub struct Upload {
     pub tags: List<u16, 8>,
 }
 /// Application reply, distinct from the upload shape.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(
-    feature = "schema",
-    derive(wire::typescript::Wire),
-    wire(crate = "wire")
-)]
+#[derive(Debug, PartialEq, wire::Wire)]
+#[wire(crate = "wire")]
 pub struct Receipt {
     /// Committed revision reported by the application.
     pub revision: u64,

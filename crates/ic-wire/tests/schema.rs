@@ -312,12 +312,27 @@ fn metadata_output_is_bounded_in_utf8_bytes() {
 #[test]
 fn generated_payload_module_admits_names_policy_and_total_output() {
     use ic_wire::typescript::PayloadLimits;
-    let types = BTreeMap::from([("Root".into(), json!({"k":"bool"}))]);
+    let types = BTreeMap::from([
+        (
+            "Fixed".into(),
+            json!({"k":"record","fixed":true,"fields":[
+                {"name":"flag","value":{"k":"bool"}}
+            ]}),
+        ),
+        (
+            "Message".into(),
+            json!({"k":"extension-tuple","items":[{"k":"ref","name":"Fixed"}],"extensions":[]}),
+        ),
+        (
+            "Root".into(),
+            json!({"k":"newtype","item":{"k":"ref","name":"Message"}}),
+        ),
+    ]);
     let graph = ValidatedRegistry::from_metadata(&types, SchemaLimits::default()).unwrap();
     let limits = PayloadLimits {
-        bytes: 1,
-        nodes: 1,
-        depth: 1,
+        bytes: 2,
+        nodes: 4,
+        depth: 4,
     };
     let source = graph
         .payload_module(
@@ -331,6 +346,7 @@ fn generated_payload_module_admits_names_policy_and_total_output() {
         .unwrap();
     assert!(source.contains("ic-wire-json"));
     assert!(source.contains("encode:(value: Root)"));
+    assert!(graph.declarations().unwrap().contains("export type Fixed"));
     for name in ["Root", "globalThis", "class", "x;throw"] {
         assert_eq!(
             graph.payload_module(
@@ -344,17 +360,19 @@ fn generated_payload_module_admits_names_policy_and_total_output() {
             Err(GenerationError::Schema)
         );
     }
-    assert_eq!(
-        graph.payload_module(
-            "codec",
-            "Missing",
-            "./runtime.ts",
-            limits,
-            &Default::default(),
-            |report| eprint!("{report}")
-        ),
-        Err(GenerationError::Schema)
-    );
+    for invalid_root in ["Missing", "Fixed"] {
+        assert_eq!(
+            graph.payload_module(
+                "codec",
+                invalid_root,
+                "./runtime.ts",
+                limits,
+                &Default::default(),
+                |_| panic!("rejected clients do not report diagnostics")
+            ),
+            Err(GenerationError::Schema)
+        );
+    }
     for module in ["", "bad\0module"] {
         assert_eq!(
             graph.payload_module(
@@ -369,6 +387,7 @@ fn generated_payload_module_admits_names_policy_and_total_output() {
         );
     }
     for invalid in [
+        PayloadLimits { bytes: 0, ..limits },
         PayloadLimits { nodes: 0, ..limits },
         PayloadLimits { depth: 0, ..limits },
     ] {
@@ -427,8 +446,17 @@ fn generated_payload_module_admits_names_policy_and_total_output() {
 fn method_modules_admit_identities_directions_and_bounded_source() {
     use ic_wire::typescript::{Method, PayloadLimits};
     let types = BTreeMap::from([
-        ("Request".into(), json!({"k":"unit"})),
-        ("Response".into(), json!({"k":"bool"})),
+        ("Fixed".into(), json!({"k":"bool"})),
+        (
+            "Request".into(),
+            json!({"k":"extension-tuple","items":[],"extensions":[]}),
+        ),
+        (
+            "Response".into(),
+            json!({"k":"extension-record","fields":[
+            {"name":"accepted","value":{"k":"ref","name":"Fixed"}}
+        ],"extensions":[]}),
+        ),
     ]);
     let graph = ValidatedRegistry::from_metadata(&types, SchemaLimits::default()).unwrap();
     let method = Method {
@@ -437,12 +465,12 @@ fn method_modules_admit_identities_directions_and_bounded_source() {
         request: "Request",
         response: "Response",
         request_limits: PayloadLimits {
-            bytes: 0,
+            bytes: 1,
             nodes: 1,
             depth: 1,
         },
         response_limits: PayloadLimits {
-            bytes: 1,
+            bytes: 2,
             nodes: 2,
             depth: 3,
         },
@@ -453,8 +481,8 @@ fn method_modules_admit_identities_directions_and_bounded_source() {
         })
         .unwrap();
     assert!(source.contains("id:'18446744073709551615'"));
-    assert!(source.contains("requestBytes:11, requestNodes:1, requestDepth:1"));
-    assert!(source.contains("responseBytes:12, responseNodes:2, responseDepth:3"));
+    assert!(source.contains("requestBytes:12, requestNodes:1, requestDepth:1"));
+    assert!(source.contains("responseBytes:13, responseNodes:2, responseDepth:3"));
     assert!(source.contains("encodeRequest:(value: Request)"));
     assert!(source.contains("decodeResponse:(bytes: globalThis.Uint8Array): Response"));
     for duplicate in [
@@ -484,6 +512,28 @@ fn method_modules_admit_identities_directions_and_bounded_source() {
             ..method
         },
         Method {
+            request: "Fixed",
+            ..method
+        },
+        Method {
+            response: "Fixed",
+            ..method
+        },
+        Method {
+            request_limits: PayloadLimits {
+                bytes: 0,
+                ..method.request_limits
+            },
+            ..method
+        },
+        Method {
+            response_limits: PayloadLimits {
+                bytes: 0,
+                ..method.response_limits
+            },
+            ..method
+        },
+        Method {
             export: "globalThis",
             ..method
         },
@@ -495,6 +545,11 @@ fn method_modules_admit_identities_directions_and_bounded_source() {
                 &Default::default(),
                 |report| eprint!("{report}")
             ),
+            Err(GenerationError::Schema)
+        );
+        #[cfg(feature = "api-manifest")]
+        assert_eq!(
+            graph.api_manifests(&[("call", invalid)]),
             Err(GenerationError::Schema)
         );
     }

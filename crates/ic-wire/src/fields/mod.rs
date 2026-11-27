@@ -27,6 +27,12 @@ impl<T, const N: usize> List<T, N> {
         &self.0
     }
 
+    /// Mutably borrow the elements without changing the admitted length.
+    #[must_use]
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.0
+    }
+
     /// Recover the admitted sequence.
     #[must_use]
     pub fn into_vec(self) -> Vec<T> {

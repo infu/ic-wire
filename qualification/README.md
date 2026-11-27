@@ -15,12 +15,27 @@ current Rust and TypeScript implementations, with no older Wire dependency.
 Package directories match Cargo package names. `wire` is the renamed dependency
 on the local product crate, also exercising derive support for renamed imports.
 
+## Schema evolution
+
+`make test-evolution` checks sparse framing, typed recovery, schema admission,
+and request and reply compatibility against emitted manifests.
+`make check-evolution-typescript` uses the locked TypeScript compiler and Node
+to check and exchange versioned frames with generated clients. Install the
+compiler with `npm ci --prefix qualification/typescript --ignore-scripts`.
+The tests cover three revisions of inline request and reply types, nested
+records and tuple tails inside containers, required additions in each method
+direction, and a malformed known value inside a branch eligible for recovery.
+The Rust fixtures use the ordinary encoding API for absent and present
+extensions and exchange frames with the generated TypeScript clients.
+[Evolution contract](../docs/design/evolution.md)
+
 ## Candid comparison
 
 Run the optional native matrix to print byte lengths for matched values and
 verify that each codec decodes its own bytes back to the input. Rows compare a
-Wire payload (add 11 bytes for a Wire frame) with a complete single-argument
-Candid message including its type information. The numeric list cases exercise
+Wire payload including its sparse root (add 11 bytes for a Wire frame) with a
+complete single-argument Candid message including its type information.
+The numeric list cases exercise
 both short and maximum-width Wire varints.
 Identity comparisons use Platform Types on Wire and Candid principal/account
 values with matching fields. Checks distinguish absent and explicit-zero subaccounts.
@@ -46,33 +61,34 @@ integer lists and success/error variants. Primitive f32 cases compare decoded
 bits, including signed zero and a noncanonical quiet NaN payload.
 
 Unit, optional-unit and nested-option lists exercise empty values, presence tags
-and the 127/128 element-count boundary. For 128 units the Wire payload is just
-the two-byte count. Alternating absent and present units takes 130 bytes.
+and the 127/128 element-count boundary. For 128 units the Wire payload holds
+the two-byte count and the empty extension block. Alternating absent and present
+units takes 131 bytes.
 
 The ordered-sequence rows compare a nonempty list of absolute u64 values with
 its first value and unsigned gaps. Both layouts preserve duplicates. For 128
-consecutive values starting at 1,700,000,000, the Wire payload shrinks from 642
-to 133 bytes. The complete Candid message grows from 1,035 to 1,047 bytes.
+consecutive values starting at 1,700,000,000, the Wire payload shrinks from 643
+to 134 bytes. The complete Candid message grows from 1,035 to 1,047 bytes.
 The matrix also covers singletons, large gaps and the 127/128 gap-width boundary.
 
 Flag bitmap rows include the logical flag count so trailing false flags survive
-byte padding. At 128 flags, the bitmap reduces Wire from 130 to 19 bytes and
+byte padding. At 128 flags, the bitmap reduces Wire from 131 to 20 bytes and
 Candid from 139 to 42. At one flag it costs an extra Wire byte. State-run rows
 compare a list of enum tags with ordered (state, count) pairs. For 256 entries,
-runs of eight reduce Wire from 258 to 65 bytes and Candid from 287 to 132.
-When the state changes every entry, the pairs grow to 514 and 805 bytes.
+runs of eight reduce Wire from 259 to 66 bytes and Candid from 287 to 132.
+When the state changes every entry, the pairs grow to 515 and 805 bytes.
 Both comparisons measure the complete payload for each consumer schema.
 
 Three-axis point rows compare fixed `[i16; 3]` coordinates with vectors holding
-the same three coordinates. At 128 points, fixed arrays use 642 Wire bytes and
-vectors use 770. Each inner vector adds a count byte. Both Candid messages use
+the same three coordinates. At 128 points, fixed arrays use 643 Wire bytes and
+vectors use 771. Each inner vector adds a count byte. Both Candid messages use
 909 bytes because both coordinate types encode as `vec int16`.
 
 Relation rows compare source-ordered pairs with a map from each source to its
 ordered list of targets. They preserve repeated targets and cover sources with
 at least one edge, plus the empty relation. For 16 sources starting at key
-1,000,000, grouping one edge per source grows Wire from 81 to 97 bytes. With
-eight edges per source, grouping reduces Wire from 578 to 257 bytes and Candid
+1,000,000, grouping one edge per source grows Wire from 82 to 98 bytes. With
+eight edges per source, grouping reduces Wire from 579 to 258 bytes and Candid
 from 785 to 354. The matrix varies source-key width and crosses the 127/128
 count boundary separately for sources and targets.
 
@@ -91,7 +107,7 @@ field representation once in the schema and preserve its element bound.
 The batch rows compare individually encoded request frames with one request
 frame containing the full list. Candid uses individual one-argument messages
 and one list argument respectively. For 128 nested events, batching reduces
-Wire from 3,328 to 1,933 bytes and Candid from 11,392 to 4,157. A one-event
+Wire from 3,456 to 1,934 bytes and Candid from 11,392 to 4,157. A one-event
 batch adds overhead in both formats. Consumers can use bounded batches when
 their endpoint permits shared ordering, retry and failure semantics.
 For installed instructions, whole Wasm sizes and native allocations, see the
@@ -110,9 +126,10 @@ make check-consumer-wasm
 make test-typescript
 ```
 
-The literal tests cover every u16/i16 encoding, short primitive acceptance,
-representative payload/request/response bytes, truncated prefixes, reusable/slice
-custody and borrowed input pointers. Additional frame tests cover nested
+The literal tests cover every u16/i16 leaf encoding, short primitive acceptance,
+representative sparse payload/request/response bytes, truncated prefixes,
+reusable/slice custody and borrowed input pointers. Fixed test values remain
+inside an evolving root. Additional frame tests cover nested
 truncation/trailing spans and nonfinite or partial packed float words at first,
 middle and last positions. Product tests independently cover precise admission
 boundaries and malformed-input precedence.
@@ -130,13 +147,14 @@ share this workspace’s catalog, lockfile, profiles and common lint policy.
 
 ## Allocation qualification
 
-The `allocation` executable runs eight groups serially without the concurrent
+The `allocation` executable runs nine groups serially without the concurrent
 Rust test harness. Published `stats_alloc` wraps the system allocator; the crate
 forbids unsafe code. Fixture preparation and assertions are outside measured
 regions, and outputs stay live until statistics are read.
 
-Checks cover zero-allocation sizing/preflight refusal, fallible output reservation
-between passes, reused/slice output, field rejection before owned allocation,
+Checks cover zero-allocation sparse sizing and preflight refusal, fallible output reservation
+between passes, reused/slice output, automatic scratch admission, field
+rejection before owned allocation,
 borrowed spans, successful allocation controls, failed second-pass cleanup and
 domain boundaries. A valid prefix can allocate before a later invalid field.
 Text allocates owned bytes before UTF-8 validation, and custom Serde can allocate
@@ -200,8 +218,9 @@ writes both codecs, their service bindings and the bundled runtime. The
 [transport](typescript/agent-transport.ts) uses the supplied HTTP agent for
 queries and certified update results. The [Node check](typescript/check-service.mjs)
 uses a local root key, reads the counter, adds 128, and reads the changed state.
-Three invalid update frames must trap and leave the counter at 128. Testkit
-starts and closes the simulator for this run.
+Four invalid update frames must trap and leave the counter at 128. They cover a
+missing payload, a missing extension block, a different method ID and a response
+direction. Testkit starts and closes the simulator for this run.
 
 ## Generated inputs and fuzzing
 
@@ -214,12 +233,12 @@ values and error categories for the same randomly generated bytes. Rust's
 trailing-input error maps to the browser's malformed-input category.
 
 For a coverage-guided run on the native target, seed the corpus with an empty
-list and an empty packed field in a valid request frame. Keep the corpus for
+list and an empty packed field followed by a sparse block in a request frame. Keep the corpus for
 subsequent runs. The following uses the pinned compiler and libFuzzer.
 
 ```sh
 mkdir -p qualification/target/decode-corpus
-printf 'IW\007\000\000\000\000\000\000\000\000\000\000' > qualification/target/decode-corpus/request
+printf 'IW\007\000\000\000\000\000\000\000\000\000\000\000' > qualification/target/decode-corpus/request
 RUSTFLAGS='-Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-inline-8bit-counters -Cllvm-args=-sanitizer-coverage-pc-table' \
 cargo run --manifest-path qualification/Cargo.toml --locked -p ic-wire-compatibility \
   --features fuzz --example fuzz-decode --target "$(rustc --print host-tuple)" -- \

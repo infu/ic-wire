@@ -35,8 +35,8 @@ jobs:
           echo "$RUNNER_TEMP/wire-ci-bin" >> "$GITHUB_PATH"
       - name: Check workflow and hook caller
         run: |
-          actionlint .github/workflows/ci.yml
-          shellcheck scripts/ci/check-formatting-hooks.sh
+          actionlint
+          shellcheck scripts/ci/check-formatting-hooks.sh scripts/ci/check-cla.sh
       - name: Scan complete repository history once
         run: gitleaks git --redact=100 --no-banner --no-color --log-level error
       - name: Retain sanitized setup diagnostics
@@ -84,9 +84,11 @@ jobs:
       - name: Check portable codec, host schemas and derive diagnostics
         run: |
           make lint lint-host lint-compatibility doc doc-host
-          cargo clippy -p ic-wire --features derive --lib --test derive_tests --locked -- -D warnings
+          cargo clippy -p ic-wire --features derive,typescript --lib --test derive_tests --locked -- -D warnings
           make test test-host test-compatibility
-          cargo test -p ic-wire --features derive --test derive_tests --locked
+          cargo test -p ic-wire --features derive,typescript --test derive_tests --locked
+      - name: Check sparse evolution and upgrade manifests
+        run: make test-evolution
       - name: Check Wire and Candid comparison matrix
         if: runner.os == 'Linux'
         run: cargo test --manifest-path qualification/Cargo.toml -p ic-wire-compatibility --features candid-comparison --test candid_matrix --locked
@@ -102,7 +104,7 @@ jobs:
         run: perl scripts/ci/setup-diagnostics.pl typescript npm ci --prefix qualification/typescript --ignore-scripts --no-audit --no-fund
       - name: Check strict generated clients and Rust/TypeScript exchange
         if: runner.os == 'Linux'
-        run: make lint-typescript check-typescript check-api-manifest
+        run: make lint-typescript check-typescript check-evolution-typescript check-api-manifest
       - name: Check portable Wasm and execute standalone consumer
         if: runner.os == 'Linux'
         run: |

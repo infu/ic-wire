@@ -1,6 +1,7 @@
 use super::{definition, limits, run_typescript};
+use crate::support::{decode, encode};
 use serde_json::json;
-use wire::{Encoding, Packed, decode, encode};
+use wire::{Encoding, Packed};
 
 #[test]
 fn packed_element_bounds_are_shared_by_all_browser_word_kinds() {
@@ -54,7 +55,8 @@ fn packed_words_keep_byte_prefixes_and_owned_storage() {
     macro_rules! case {
         ($ty:ty,$word:literal,$values:expr,$bytes:expr) => {{
             let value=Packed::<$ty>::new($values).unwrap();
-            let bytes:Vec<u8>=$bytes;
+            let mut bytes: Vec<u8> = $bytes;
+            bytes.push(0);
             assert_eq!(encode(&value,Encoding::Payload,limits()).unwrap(),bytes);
             assert_eq!(decode::<Packed<$ty>>(&bytes,Encoding::Payload,limits()).unwrap(),value);
             let schema=definition::<Packed<$ty>>("Words");

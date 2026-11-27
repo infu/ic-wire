@@ -2,14 +2,15 @@
 mod service;
 
 use super::{
-    GenerationError, MAX_SAFE_INTEGER, Method, Node, PayloadLimits, RUNTIME_SCHEMA_FORMAT,
-    ValidatedRegistry, identifier,
+    ExtensionField, GenerationError, MAX_SAFE_INTEGER, Method, Node, PayloadLimits,
+    RUNTIME_SCHEMA_FORMAT, ValidatedRegistry, identifier,
 };
 use crate::framing::HEADER_BYTES;
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     format,
     string::String,
+    vec::Vec,
 };
 use core::fmt::{self, Write};
 
@@ -106,7 +107,8 @@ impl Write for Output {
 impl ValidatedRegistry {
     /// Generate a typed payload client with privately owned metadata and policy.
     ///
-    /// `root` names an admitted type. `export` names the exported codec object.
+    /// `root` must resolve to an extension record or tuple. `export` names the
+    /// exported codec object.
     /// The trusted runtime module must export `schemaFormat` matching
     /// [`RUNTIME_SCHEMA_FORMAT`] and `createPayloadCodec(metadata, registry)`.
     /// The factory returns `encode(unknown): Uint8Array` and `decode(Uint8Array):
@@ -119,10 +121,10 @@ impl ValidatedRegistry {
     /// Acknowledgements never change generated source.
     ///
     /// # Errors
-    /// Returns Schema for invalid names, missing roots, empty module specifiers
-    /// or zero node/depth allowances; Complexity for unsafe JS integers or an
-    /// artifact exceeding the registry's output allowance. Rooted advice can also
-    /// return the errors documented by [`Self::lint_bulk_roots`].
+    /// Returns Schema for invalid names or message layouts, empty module
+    /// specifiers, or zero byte, node or depth allowances. Returns Complexity
+    /// for unsafe JS integers or excess output. Rooted advice can also return
+    /// the errors documented by [`Self::lint_bulk_roots`].
     pub fn payload_module(
         &self,
         export: &str,
@@ -133,14 +135,15 @@ impl ValidatedRegistry {
         diagnostics: impl FnOnce(super::BulkLintReport),
     ) -> Result<String, GenerationError> {
         Self::admit_runtime_module(runtime_module)?;
-        self.admit_client(export, root, limits)?;
+        let root_index = self.admit_client(export, root, limits)?;
+        self.validate_message_roots(&[root_index])?;
         let mut output = Output::new(self.output_bytes);
         self.render_payload_module(&mut output, export, root, runtime_module, limits)
             .map_err(|_| GenerationError::Complexity)?;
         let report = self.lint_roots(
             [Ok((
                 format!("/types/{}", super::advice::escape(root)),
-                self.root_index(root)?,
+                root_index,
             ))],
             acknowledgements,
         )?;
@@ -162,17 +165,15 @@ impl ValidatedRegistry {
         export: &str,
         root: &str,
         limits: PayloadLimits,
-    ) -> Result<(), GenerationError> {
+    ) -> Result<usize, GenerationError> {
         identifier(export)?;
+        let root = self.root_index(root)?;
         if export == "globalThis"
-            || self
-                .names
-                .binary_search_by(|name| name.as_str().cmp(root))
-                .is_err()
             || self
                 .names
                 .binary_search_by(|name| name.as_str().cmp(export))
                 .is_ok()
+            || limits.bytes == 0
             || limits.nodes == 0
             || limits.depth == 0
         {
@@ -185,7 +186,7 @@ impl ValidatedRegistry {
             return Err(GenerationError::Complexity);
         }
 
-        Ok(())
+        Ok(root)
     }
 
     /// Generate typed framed codecs with independent request/response policy.
@@ -194,6 +195,7 @@ impl ValidatedRegistry {
     /// bundled framed-codec interface. IDs are emitted as decimal strings,
     /// preserving all u64 values without JavaScript Number rounding. Duplicate
     /// IDs or exports reject before rendering. This emits no routing/execution.
+    /// Both message roots must resolve to an extension record or tuple.
     /// Bulk advice always reviews each `/methods/EXPORT/request` and `/response`
     /// independently. The required handler runs once on success, even when clean.
     ///
@@ -244,12 +246,13 @@ impl ValidatedRegistry {
     ) -> Result<(), GenerationError> {
         let mut names = BTreeSet::new();
         let mut ids = BTreeSet::new();
+        let mut roots = Vec::new();
         for method in methods {
             for (root, limits) in [
                 (method.request, method.request_limits),
                 (method.response, method.response_limits),
             ] {
-                self.admit_client(method.export, root, limits)?;
+                roots.push(self.admit_client(method.export, root, limits)?);
                 if limits.bytes > MAX_SAFE_INTEGER - HEADER_BYTES as u64 {
                     return Err(GenerationError::Complexity);
                 }
@@ -259,7 +262,7 @@ impl ValidatedRegistry {
             }
         }
 
-        Ok(())
+        self.validate_message_roots(&roots)
     }
 
     fn render_methods(
@@ -428,8 +431,17 @@ impl ValidatedRegistry {
                 output.write_str(",\"item\":")?;
                 self.metadata_node(*item, output, reference, entry_break)?;
             }
-            Node::Tuple(items) => {
-                output.write_str("\"tuple\",\"items\":[")?;
+            Node::Tuple(items) | Node::ExtensionTuple { items, .. } => {
+                let extensions = match &self.nodes[id] {
+                    Node::ExtensionTuple { extensions, .. } => Some(extensions),
+                    _ => None,
+                };
+                output.quoted(if extensions.is_some() {
+                    "extension-tuple"
+                } else {
+                    "tuple"
+                })?;
+                output.write_str(",\"items\":[")?;
                 for (index, item) in items.iter().enumerate() {
                     if index != 0 {
                         output.write_char(',')?;
@@ -437,6 +449,9 @@ impl ValidatedRegistry {
                     self.metadata_node(*item, output, reference, entry_break)?;
                 }
                 output.write_char(']')?;
+                if let Some(extensions) = extensions {
+                    self.metadata_extensions(extensions, output, reference, entry_break)?;
+                }
             }
             Node::Result { ok, err } => {
                 output.write_str("\"result\",\"ok\":")?;
@@ -444,11 +459,11 @@ impl ValidatedRegistry {
                 output.write_str(",\"err\":")?;
                 self.metadata_node(*err, output, reference, entry_break)?;
             }
-            Node::Option(item) | Node::Alias(item) => {
-                output.quoted(if matches!(self.nodes[id], Node::Option(_)) {
-                    "option"
-                } else {
-                    "newtype"
+            Node::Option(item) | Node::Recover(item) | Node::Alias(item) => {
+                output.quoted(match self.nodes[id] {
+                    Node::Option(_) => "option",
+                    Node::Recover(_) => "recover",
+                    _ => "newtype",
                 })?;
                 output.write_str(",\"item\":")?;
                 self.metadata_node(*item, output, reference, entry_break)?;
@@ -458,8 +473,17 @@ impl ValidatedRegistry {
                 output.write_str("\"ref\",\"name\":")?;
                 output.quoted(&self.names[*root])?;
             }
-            Node::Record(fields) => {
-                output.write_str("\"record\",\"fields\":[")?;
+            Node::Record(fields) | Node::ExtensionRecord { fields, .. } => {
+                let extensions = match &self.nodes[id] {
+                    Node::ExtensionRecord { extensions, .. } => Some(extensions),
+                    _ => None,
+                };
+                output.quoted(if extensions.is_some() {
+                    "extension-record"
+                } else {
+                    "record"
+                })?;
+                output.write_str(",\"fields\":[")?;
                 for (index, (name, child)) in fields.iter().enumerate() {
                     if index != 0 {
                         output.write_char(',')?;
@@ -472,9 +496,20 @@ impl ValidatedRegistry {
                     output.write_char('}')?;
                 }
                 output.write_char(']')?;
+                if let Some(extensions) = extensions {
+                    self.metadata_extensions(extensions, output, reference, entry_break)?;
+                }
             }
-            Node::Enum(variants) => {
-                output.write_str("\"enum\",\"variants\":[")?;
+            Node::Enum(variants) | Node::OpenVariant { variants, .. } => {
+                if let Node::OpenVariant { required, .. } = &self.nodes[id] {
+                    output.quoted("open-variant")?;
+                    if *required {
+                        output.write_str(",\"required\":true")?;
+                    }
+                } else {
+                    output.quoted("enum")?;
+                }
+                output.write_str(",\"variants\":[")?;
                 for (index, (name, tag, child)) in variants.iter().enumerate() {
                     if index != 0 {
                         output.write_char(',')?;
@@ -490,6 +525,12 @@ impl ValidatedRegistry {
             }
         }
         if let Some(annotation) = self.annotations.get(&id) {
+            if annotation.fixed {
+                output.write_str(",\"fixed\":true")?;
+            }
+            if annotation.projected {
+                output.write_str(",\"projected\":true")?;
+            }
             if let Some(bounds) = &annotation.bounds {
                 output.scalar_bounds(bounds, true)?;
             }
@@ -499,6 +540,33 @@ impl ValidatedRegistry {
             }
         }
         output.write_char('}')
+    }
+
+    fn metadata_extensions(
+        &self,
+        extensions: &[ExtensionField],
+        output: &mut Output,
+        reference: &mut impl FnMut(usize),
+        entry_break: &str,
+    ) -> fmt::Result {
+        output.write_str(",\"extensions\":[")?;
+        for (index, entry) in extensions.iter().enumerate() {
+            if index != 0 {
+                output.write_char(',')?;
+            }
+            output.write_str(entry_break)?;
+            output.write_str("{\"name\":")?;
+            output.quoted(&entry.name)?;
+            write!(
+                output,
+                ",\"id\":{},\"required\":{},\"value\":",
+                entry.id, entry.required
+            )?;
+            self.metadata_node(entry.child, output, reference, entry_break)?;
+            output.write_char('}')?;
+        }
+
+        output.write_char(']')
     }
 
     /// Render deterministic TypeScript type aliases from admitted nodes.
@@ -577,24 +645,28 @@ impl ValidatedRegistry {
                 self.render_node(*item, output)?;
                 output.write_char('>')
             }
-            Node::Option(item) => {
-                output.write_str("null | { readonly some: ")?;
-                self.render_node(*item, output)?;
-                output.write_str(" }")
-            }
+            Node::Option(item) | Node::Recover(item) => self.render_option(*item, output),
             Node::Array { item, len } => {
                 output.bounds(None, Some(*len))?;
                 output.write_str("globalThis.ReadonlyArray<")?;
                 self.render_node(*item, output)?;
                 output.write_char('>')
             }
-            Node::Tuple(items) => {
+            Node::Tuple(items) | Node::ExtensionTuple { items, .. } => {
                 output.write_str("readonly [")?;
                 for (index, item) in items.iter().enumerate() {
                     if index != 0 {
                         output.write_str(", ")?;
                     }
                     self.render_node(*item, output)?;
+                }
+                if let Node::ExtensionTuple { extensions, .. } = &self.nodes[id] {
+                    for (index, entry) in extensions.iter().enumerate() {
+                        if !items.is_empty() || index != 0 {
+                            output.write_str(", ")?;
+                        }
+                        self.render_option(entry.child, output)?;
+                    }
                 }
                 output.write_char(']')
             }
@@ -607,7 +679,7 @@ impl ValidatedRegistry {
             }
             Node::Alias(item) => self.render_node(*item, output),
             Node::Ref(root) => output.write_str(&self.names[*root]),
-            Node::Record(fields) => {
+            Node::Record(fields) | Node::ExtensionRecord { fields, .. } => {
                 output.write_char('{')?;
                 for (name, child) in fields {
                     output.write_str(" readonly ")?;
@@ -616,11 +688,36 @@ impl ValidatedRegistry {
                     self.render_node(*child, output)?;
                     output.write_char(';')?;
                 }
+                if let Node::ExtensionRecord { extensions, .. } = &self.nodes[id] {
+                    for entry in extensions {
+                        output.write_str(" readonly ")?;
+                        output.quoted(&entry.name)?;
+                        output.write_str(": ")?;
+                        if entry.required {
+                            self.render_node(entry.child, output)?;
+                        } else {
+                            self.render_option(entry.child, output)?;
+                        }
+                        output.write_char(';')?;
+                    }
+                }
                 output.write_str(" }")
             }
-            Node::Enum(variants) => {
+            Node::Enum(variants) | Node::OpenVariant { variants, .. } => {
+                let accepts_null = matches!(
+                    self.nodes[id],
+                    Node::OpenVariant {
+                        required: false,
+                        ..
+                    }
+                );
+                if accepts_null {
+                    output.write_str("null")?;
+                } else if variants.is_empty() {
+                    output.write_str("never")?;
+                }
                 for (index, (name, tag, child)) in variants.iter().enumerate() {
-                    if index != 0 {
+                    if accepts_null || index != 0 {
                         output.write_str(" | ")?;
                     }
                     write!(output, "/* id {tag} */ {{ readonly tag: ")?;
@@ -633,6 +730,13 @@ impl ValidatedRegistry {
             }
         }
     }
+
+    fn render_option(&self, item: usize, output: &mut Output) -> fmt::Result {
+        output.write_str("null | { readonly some: ")?;
+        self.render_node(item, output)?;
+
+        output.write_str(" }")
+    }
 }
 
 #[cfg(feature = "api-manifest")]
@@ -641,7 +745,7 @@ impl ValidatedRegistry {
     ///
     /// Supply the deployed name alongside the existing client descriptor. Map keys
     /// are endpoint names, not filesystem paths. Each document contains only named
-    /// definitions reachable from its two roots. The sum of all document lengths
+    /// definitions reachable from its two evolving message roots. The sum of all document lengths
     /// is limited by the registry's output byte allowance. Empty inventories are valid.
     /// Applications own export coverage and the decision to accept baseline changes.
     ///

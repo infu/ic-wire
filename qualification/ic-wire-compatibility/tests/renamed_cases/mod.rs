@@ -1,8 +1,9 @@
-use super::{limits, run_typescript};
+use super::{limits, message_type, run_typescript};
+use crate::support::{decode, encode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use wire::Encoding;
 use wire::typescript::{PayloadLimits, SchemaLimits, ValidatedRegistry};
-use wire::{Encoding, decode, encode};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, wire::typescript::Wire)]
 #[wire(crate = "wire")]
@@ -13,7 +14,7 @@ enum Choice {
     Value(u16),
 }
 #[derive(Debug, PartialEq, Serialize, Deserialize, wire::typescript::Wire)]
-#[wire(crate = "wire")]
+#[wire(crate = "wire", fixed)]
 struct Record {
     #[serde(rename = "__proto__")]
     flag: bool,
@@ -27,7 +28,7 @@ fn explicit_serde_names_reach_generated_clients_without_changing_bytes() {
     let metadata: Value = serde_json::from_str(&graph.metadata_json().unwrap()).unwrap();
     assert_eq!(
         metadata["Record"],
-        json!({"k":"record","fields":[
+        json!({"k":"record","fixed":true,"fields":[
             {"name":"__proto__","value":{"k":"bool"}},
             {"name":"choice-value","value":{"k":"enum","variants":[
                 {"name":"ready-now","id":0,"value":{"k":"unit"}},
@@ -45,17 +46,17 @@ fn explicit_serde_names_reach_generated_clients_without_changing_bytes() {
             choice: Choice::Value(128),
         },
     ];
-    let literals = [vec![0, 0], vec![1, 1, 128, 1]];
+    let literals = [vec![0, 0, 0], vec![1, 1, 128, 1, 0]];
     for (record, literal) in records.iter().zip(&literals) {
         assert_eq!(
             encode(record, Encoding::Payload, limits()).unwrap(),
             *literal
         );
     }
-    let module = graph
+    let module = message_type::<Record>("Record")
         .payload_module(
             "codec",
-            "Record",
+            "MessageRecord",
             "./runtime-adapter.ts",
             PayloadLimits {
                 bytes: 128,

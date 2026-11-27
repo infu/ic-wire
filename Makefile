@@ -13,11 +13,11 @@ help:
 	  'install-hooks         Activate the shared formatting hook in this clone' \
 	  'check-formatting-hooks Qualify the hook against Wire formatting inputs' \
 	  'snapshot-check        Verify installed snapshot bytes offline' \
-	  'deps-list             List workspace package versions' \
+	  'deps-list             List product packages (DEPENDENCY_MANIFEST adds qualification)' \
 	  'deps-update           Run cargo update -v for maintained workspaces' \
 	  '  Optional: DEPENDENCY_PACKAGE=name DEPENDENCY_PRECISE=version' \
 	  'test                  Aggregate product tests (default features)' \
-	  '  Focused codec: cargo test -p ic-wire --test encode_tests --locked' \
+	  '  Focused codec: cargo test -p ic-wire --lib tests::encode_tests --locked' \
 	  'test-compatibility    Aggregate qualification tests (default features)' \
 	  'test-allocation       Run isolated native allocation checks' \
 	  'test-host             Run focused host schema contracts' \
@@ -27,6 +27,8 @@ help:
 	  'test-typescript       Exchange Rust bytes with current TypeScript (Node required)' \
 	  'lint-typescript       Lint the focused cross-language qualification harness' \
 	  'check-typescript      Strictly typecheck generated clients (npm ci prerequisite)' \
+	  'test-evolution        Check sparse evolution, recovery and upgrade manifests' \
+	  'check-evolution-typescript Typecheck and exchange evolved frames (npm ci prerequisite)' \
 	  'check-raw-service     Run the generated client against a local PocketIC canister' \
 	  'check-api-manifest    Compare the upload contract with its reviewed baseline' \
 	  'check-packages        Assemble archives and verify extracted-package consumers' \
@@ -120,6 +122,22 @@ test-typescript:
 lint-typescript:
 	+cargo clippy --manifest-path qualification/Cargo.toml --features typescript --test typescript --locked -- -D warnings
 
+.PHONY: test-evolution check-evolution-typescript
+test-evolution check-evolution-typescript: qualification-tooling-check | toko-execution-check
+
+test-evolution:
+	+cargo test -p ic-wire --features derive,api-manifest --locked --lib \
+	  --test evolution_nested_recovery_tests \
+	  --test evolution_derive_tests --test evolution_inline_derive_tests \
+	  --test evolution_inline_nested_tests --test evolution_schema
+	+cargo test --manifest-path qualification/Cargo.toml -p ic-wire-consumer --locked \
+	  --features evolution-qualification --example evolution-upgrade
+
+check-evolution-typescript:
+	+IC_WIRE_CHECK_TYPESCRIPT=1 cargo test --manifest-path qualification/Cargo.toml -p ic-wire-consumer \
+	  --locked --features evolution-qualification --example evolution-contract
+	node --experimental-transform-types qualification/ic-wire-consumer/examples/evolution_contract/runtime.mjs
+
 .PHONY: check-api-manifest
 check-api-manifest: qualification-tooling-check | toko-execution-check
 	+@set -eu; candidate=$$(mktemp "$${TMPDIR:-/tmp}/wire-upload-api.XXXXXXXX"); trap 'rm -f "$$candidate"' EXIT; \
@@ -150,11 +168,11 @@ test-derive lint-derive: toko-tooling-check | toko-execution-check
 
 test-derive:
 	+cargo test -p ic-wire-derive --lib --locked
-	+cargo test -p ic-wire --features derive --test derive_tests --locked
+	+cargo test -p ic-wire --features derive,typescript --test derive_tests --locked
 
 lint-derive:
 	+cargo clippy -p ic-wire-derive --lib --tests --locked -- -D warnings
-	+cargo clippy -p ic-wire --features derive --lib --test derive_tests --locked -- -D warnings
+	+cargo clippy -p ic-wire --features derive,typescript --lib --test derive_tests --locked -- -D warnings
 
 .PHONY: check-packages check-browser
 check-packages: qualification-tooling-check | toko-execution-check

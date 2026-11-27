@@ -26,11 +26,21 @@ use serde::Deserialize;
 /// During payload decoding exhausted allowances return [`Error::Limit`], other
 /// deserialization failures return [`Error::Malformed`]. A successful value
 /// followed by unused input returns [`Error::Trailing`].
+#[cfg(test)]
 pub fn decode<'de, T: Deserialize<'de>>(
     input: &'de [u8],
     encoding: Encoding,
-    mut limits: Limits,
+    limits: Limits,
 ) -> Result<T, Error> {
+    let (payload, limits) = admit_input(input, encoding, limits)?;
+    decode_payload(payload, &Budget::new(limits), 1)
+}
+
+pub(super) fn admit_input(
+    input: &[u8],
+    encoding: Encoding,
+    mut limits: Limits,
+) -> Result<(&[u8], Limits), Error> {
     if input.len() > limits.bytes {
         return Err(Error::Limit(crate::LimitKind::Bytes));
     }
@@ -46,20 +56,33 @@ pub fn decode<'de, T: Deserialize<'de>>(
             payload
         }
     };
-    let budget = Budget::new(limits);
-    let mut deserializer = postcard::Deserializer::from_bytes(payload);
-    let value = T::deserialize(admitted::Bounded {
-        inner: &mut deserializer,
-        budget: &budget,
-        depth: 1,
-    })
-    .map_err(|_| budget.error())?;
-    if !deserializer
-        .finalize()
-        .map_err(|_| Error::Malformed)?
-        .is_empty()
-    {
+    Ok((payload, limits))
+}
+
+pub(super) fn decode_payload<'de, T: Deserialize<'de>>(
+    input: &'de [u8],
+    budget: &Budget,
+    depth: usize,
+) -> Result<T, Error> {
+    let (value, rest) = take_payload(input, budget, depth)?;
+    if !rest.is_empty() {
         return Err(Error::Trailing);
     }
     Ok(value)
+}
+
+pub(super) fn take_payload<'de, T: Deserialize<'de>>(
+    payload: &'de [u8],
+    budget: &Budget,
+    depth: usize,
+) -> Result<(T, &'de [u8]), Error> {
+    let mut deserializer = postcard::Deserializer::from_bytes(payload);
+    let value = T::deserialize(admitted::Bounded {
+        inner: &mut deserializer,
+        budget,
+        depth,
+    })
+    .map_err(|_| budget.error())?;
+    let rest = deserializer.finalize().map_err(|_| Error::Malformed)?;
+    Ok((value, rest))
 }

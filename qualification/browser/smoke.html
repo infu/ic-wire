@@ -14,8 +14,8 @@ try {
     throw new Error(`missing ${code} refusal`);
   };
   const request = {revision:128n,key:'sensor',content:Uint8Array.of(0,255),samples:Int16Array.of(-32768,0,32767),tags:[1,128]};
-  const requestBytes = [73,87,7,0,0,0,0,0,0,0,0,128,1,6,115,101,110,115,111,114,2,0,255,6,0,128,0,0,255,127,2,1,128,1];
-  const responseBytes = [73,87,7,0,0,0,0,0,0,0,1,129,1,1];
+  const requestBytes = [73,87,7,0,0,0,0,0,0,0,0,128,1,6,115,101,110,115,111,114,2,0,255,6,0,128,0,0,255,127,2,1,128,1,0];
+  const responseBytes = [73,87,7,0,0,0,0,0,0,0,1,129,1,1,0];
   assert(equal(upload.encodeRequest(request), requestBytes), 'request literal');
   assert(equal(upload.encodeResponse({revision:129n,accepted:true}), responseBytes), 'response literal');
   assert(equal(uploadPayload.encode(request), requestBytes.slice(11)), 'payload literal');

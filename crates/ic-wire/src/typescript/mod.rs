@@ -48,6 +48,7 @@ pub const RUNTIME: &str = include_str!("runtime.ts");
 #[derive(Clone, Copy, Debug)]
 pub struct PayloadLimits {
     /// Maximum payload bytes, excluding any frame or transport envelope.
+    /// A message requires at least one byte for its sparse root.
     pub bytes: u64,
     /// Maximum runtime value visits; must be nonzero.
     pub nodes: u64,
@@ -134,6 +135,16 @@ struct ScalarBounds {
 struct Annotations {
     check: Option<String>,
     bounds: Option<ScalarBounds>,
+    fixed: bool,
+    projected: bool,
+}
+
+#[derive(Debug)]
+struct ExtensionField {
+    id: u32,
+    name: String,
+    child: usize,
+    required: bool,
 }
 
 #[derive(Debug)]
@@ -173,10 +184,23 @@ enum Node {
         err: usize,
     },
     Option(usize),
+    Recover(usize),
     Alias(usize),
     Ref(usize),
     Record(Vec<(String, usize)>),
     Enum(Vec<(String, u32, usize)>),
+    ExtensionRecord {
+        fields: Vec<(String, usize)>,
+        extensions: Vec<ExtensionField>,
+    },
+    ExtensionTuple {
+        items: Vec<usize>,
+        extensions: Vec<ExtensionField>,
+    },
+    OpenVariant {
+        variants: Vec<(String, u32, usize)>,
+        required: bool,
+    },
 }
 
 /// Immutable admitted registry with private node indices.
@@ -197,8 +221,12 @@ impl ValidatedRegistry {
     /// Import explicit definitions in the Wire metadata grammar.
     ///
     /// Supported kinds: unit, bool, u/i, float, text, bytes, packed, list,
-    /// array, tuple, result, option, newtype, ref, record and enum. Unknown keys reject;
+    /// array, tuple, result, option, recover, newtype, ref, record, enum,
+    /// extension-record, extension-tuple and open-variant. Unknown keys reject;
     /// manual metadata must match the consumer's actual Serde representation.
+    /// Records and tuples may declare `"fixed":true` for typed method admission.
+    /// `"projected":true` identifies a generated extension layout that the
+    /// typed Rust codec projects recursively.
     ///
     /// # Errors
     /// Returns Schema for invalid metadata and Complexity for exceeded bounds.
@@ -239,6 +267,126 @@ impl ValidatedRegistry {
         };
         graph.validate_aliases()?;
         Ok(graph)
+    }
+
+    fn evolving_root_nodes(&self, roots: &[usize]) -> Result<Vec<usize>, GenerationError> {
+        if roots.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut checked_roots = vec![false; self.nodes.len()];
+        let mut evolving = Vec::new();
+        for &root in roots {
+            let mut id = self.roots[root];
+            // Alias cycles have already been rejected. Share the walk across roots.
+            while !core::mem::replace(&mut checked_roots[id], true) {
+                match &self.nodes[id] {
+                    Node::Alias(item) => id = *item,
+                    Node::Ref(root) => id = self.roots[*root],
+                    Node::ExtensionRecord { .. } | Node::ExtensionTuple { .. } => {
+                        evolving.push(id);
+                        break;
+                    }
+                    _ => return Err(GenerationError::Schema),
+                }
+            }
+        }
+        Ok(evolving)
+    }
+
+    fn validate_evolving_roots(&self, roots: &BTreeSet<String>) -> Result<(), GenerationError> {
+        let indices = roots
+            .iter()
+            .map(|root| self.root_index(root))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.validate_projection_layouts(self.evolving_root_nodes(&indices)?.into_iter())
+    }
+
+    fn validate_message_roots(&self, roots: &[usize]) -> Result<(), GenerationError> {
+        let roots = self.evolving_root_nodes(roots)?;
+        // A projected root declares that its descendants follow Rust's
+        // generated projection. Manually supplied layouts own their encoding.
+        self.validate_projection_layouts(
+            roots
+                .into_iter()
+                .filter(|id| self.annotations.get(id).is_some_and(|a| a.projected)),
+        )
+    }
+
+    fn validate_projection_layouts(
+        &self,
+        roots: impl Iterator<Item = usize>,
+    ) -> Result<(), GenerationError> {
+        let mut pending = Vec::new();
+        for id in roots {
+            match &self.nodes[id] {
+                Node::ExtensionRecord { fields, extensions } => {
+                    pending.extend(fields.iter().map(|(_, child)| (*child, true)));
+                    pending.extend(extensions.iter().map(|entry| (entry.child, true)));
+                }
+                Node::ExtensionTuple { items, extensions } => {
+                    pending.extend(items.iter().map(|&item| (item, true)));
+                    pending.extend(extensions.iter().map(|entry| (entry.child, true)));
+                }
+                _ => unreachable!("admitted evolving root"),
+            }
+        }
+        if pending.is_empty() {
+            return Ok(());
+        }
+
+        // Generated projection follows containers. A fixed Serde aggregate
+        // decodes its descendants as ordinary Serde, so reachability from each
+        // context must be checked separately even for the same named node.
+        let mut visited = vec![[false; 2]; self.nodes.len()];
+        while let Some((id, can_project)) = pending.pop() {
+            if core::mem::replace(&mut visited[id][usize::from(can_project)], true) {
+                continue;
+            }
+            let flags = self.annotations.get(&id);
+            let fixed = !can_project || flags.is_some_and(|a| a.fixed);
+            let projected = can_project && flags.is_some_and(|a| a.projected);
+            match &self.nodes[id] {
+                Node::Record(fields) if fixed => {
+                    pending.extend(fields.iter().map(|(_, child)| (*child, false)));
+                }
+                Node::Tuple(items) if fixed => {
+                    pending.extend(items.iter().map(|&item| (item, false)));
+                }
+                Node::ExtensionRecord { fields, extensions } if projected => {
+                    pending.extend(fields.iter().map(|(_, child)| (*child, true)));
+                    pending.extend(extensions.iter().map(|entry| (entry.child, true)));
+                }
+                Node::ExtensionTuple { items, extensions } if projected => {
+                    pending.extend(items.iter().map(|&item| (item, true)));
+                    pending.extend(extensions.iter().map(|entry| (entry.child, true)));
+                }
+                Node::List { item, .. } | Node::Array { item, .. } | Node::Option(item) => {
+                    pending.push((*item, can_project))
+                }
+                Node::Alias(item) => pending.push((*item, false)),
+                Node::Ref(root) => pending.push((self.roots[*root], can_project)),
+                Node::Result { ok, err } => {
+                    pending.extend([(*ok, can_project), (*err, can_project)]);
+                }
+                Node::Enum(variants) => {
+                    pending.extend(variants.iter().map(|(_, _, child)| (*child, false)));
+                }
+                Node::Record(_)
+                | Node::Tuple(_)
+                | Node::ExtensionRecord { .. }
+                | Node::ExtensionTuple { .. }
+                | Node::OpenVariant { .. }
+                | Node::Recover(_) => return Err(GenerationError::Schema),
+                Node::Unit
+                | Node::Bool
+                | Node::Integer { .. }
+                | Node::Float { .. }
+                | Node::Text { .. }
+                | Node::Bytes { .. }
+                | Node::Packed { .. } => {}
+            }
+        }
+        Ok(())
     }
 
     // Linear worklist over transparent edges. Productive recursive records,
@@ -289,6 +437,45 @@ impl Importer {
         Ok(name.to_string())
     }
 
+    fn parse_extensions<'a>(
+        &mut self,
+        value: &'a Value,
+        depth: usize,
+        names: &mut BTreeSet<&'a str>,
+        tuple_core_slots: Option<u32>,
+    ) -> Result<Vec<ExtensionField>, GenerationError> {
+        let entries = value.as_array().ok_or(GenerationError::Schema)?;
+        if entries.len() > self.remaining {
+            return Err(GenerationError::Complexity);
+        }
+        let mut extensions = Vec::new();
+        let mut previous = tuple_core_slots.unwrap_or(0);
+        for entry in entries {
+            keys(entry, &["name", "id", "value", "required"])?;
+            let name = text(entry, "name")?;
+            let id = entry["id"]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or(GenerationError::Schema)?;
+            let required = entry["required"].as_bool().ok_or(GenerationError::Schema)?;
+            if id <= previous
+                || (tuple_core_slots.is_some() && (required || previous.checked_add(1) != Some(id)))
+                || !names.insert(name)
+            {
+                return Err(GenerationError::Schema);
+            }
+            previous = id;
+            extensions.push(ExtensionField {
+                id,
+                name: self.name(name)?,
+                child: self.parse(&entry["value"], depth + 1)?,
+                required,
+            });
+        }
+
+        Ok(extensions)
+    }
+
     fn parse(&mut self, value: &Value, depth: usize) -> Result<usize, GenerationError> {
         if depth > self.depth {
             return Err(GenerationError::Complexity);
@@ -305,12 +492,15 @@ impl Importer {
             "packed" => &["k", "check", "word", "nonzero", "max"],
             "bytes" => &["k", "check", "min", "max"],
             "list" | "array" => &["k", "check", "item", "max"],
-            "tuple" => &["k", "check", "items"],
+            "tuple" => &["k", "check", "items", "fixed"],
             "result" => &["k", "check", "ok", "err"],
-            "option" | "newtype" => &["k", "check", "item"],
+            "option" | "recover" | "newtype" => &["k", "check", "item"],
             "ref" => &["k", "check", "name"],
-            "record" => &["k", "check", "fields"],
+            "record" => &["k", "check", "fields", "fixed"],
             "enum" => &["k", "check", "variants"],
+            "extension-record" => &["k", "check", "fields", "extensions", "projected"],
+            "extension-tuple" => &["k", "check", "items", "extensions", "projected"],
+            "open-variant" => &["k", "check", "variants", "required"],
             _ => return Err(GenerationError::Schema),
         };
         keys(value, allowed)?;
@@ -391,23 +581,37 @@ impl Importer {
                 len: bound(value, "max")?.ok_or(GenerationError::Schema)?,
                 item: self.parse(&value["item"], depth + 1)?,
             },
-            "tuple" => {
+            "tuple" | "extension-tuple" => {
                 let items = value["items"].as_array().ok_or(GenerationError::Schema)?;
                 if items.len() > self.remaining {
                     return Err(GenerationError::Complexity);
                 }
-                Node::Tuple(
-                    items
-                        .iter()
-                        .map(|item| self.parse(item, depth + 1))
-                        .collect::<Result<_, _>>()?,
-                )
+                let items = items
+                    .iter()
+                    .map(|item| self.parse(item, depth + 1))
+                    .collect::<Result<Vec<_>, _>>()?;
+                if kind == "extension-tuple" {
+                    let slots =
+                        u32::try_from(items.len()).map_err(|_| GenerationError::Complexity)?;
+                    Node::ExtensionTuple {
+                        items,
+                        extensions: self.parse_extensions(
+                            &value["extensions"],
+                            depth,
+                            &mut BTreeSet::new(),
+                            Some(slots),
+                        )?,
+                    }
+                } else {
+                    Node::Tuple(items)
+                }
             }
             "result" => Node::Result {
                 ok: self.parse(&value["ok"], depth + 1)?,
                 err: self.parse(&value["err"], depth + 1)?,
             },
             "option" => Node::Option(self.parse(&value["item"], depth + 1)?),
+            "recover" => Node::Recover(self.parse(&value["item"], depth + 1)?),
             "newtype" => Node::Alias(self.parse(&value["item"], depth + 1)?),
             "ref" => Node::Ref(
                 *self
@@ -415,12 +619,13 @@ impl Importer {
                     .get(text(value, "name")?)
                     .ok_or(GenerationError::Schema)?,
             ),
-            "record" | "enum" => {
-                let is_enum = kind == "enum";
+            "record" | "enum" | "extension-record" | "open-variant" => {
+                let is_open = kind == "open-variant";
+                let is_enum = kind == "enum" || is_open;
                 let fields = value[if is_enum { "variants" } else { "fields" }]
                     .as_array()
                     .ok_or(GenerationError::Schema)?;
-                if is_enum && fields.is_empty() {
+                if kind == "enum" && fields.is_empty() {
                     return Err(GenerationError::Schema);
                 }
                 if fields.len() > self.remaining {
@@ -450,7 +655,7 @@ impl Importer {
                             .as_u64()
                             .and_then(|id| u32::try_from(id).ok())
                             .ok_or(GenerationError::Schema)?;
-                        if !ids.insert(id) {
+                        if (is_open && !(1..=u32::MAX >> 1).contains(&id)) || !ids.insert(id) {
                             return Err(GenerationError::Schema);
                         }
                         variants.push((name, id, child));
@@ -458,10 +663,25 @@ impl Importer {
                         record.push((name, child));
                     }
                 }
-                if is_enum {
-                    Node::Enum(variants)
-                } else {
-                    Node::Record(record)
+                match kind {
+                    "enum" => Node::Enum(variants),
+                    "open-variant" => Node::OpenVariant {
+                        variants,
+                        required: match value.get("required") {
+                            Some(required) => required.as_bool().ok_or(GenerationError::Schema)?,
+                            None => false,
+                        },
+                    },
+                    "extension-record" => Node::ExtensionRecord {
+                        fields: record,
+                        extensions: self.parse_extensions(
+                            &value["extensions"],
+                            depth,
+                            &mut seen,
+                            None,
+                        )?,
+                    },
+                    _ => Node::Record(record),
                 }
             }
             _ => return Err(GenerationError::Schema),
@@ -478,8 +698,26 @@ impl Importer {
         } else {
             None
         };
-        if check.is_some() || bounds.is_some() {
-            self.annotations.insert(id, Annotations { check, bounds });
+        let fixed = match value.get("fixed") {
+            None => false,
+            Some(Value::Bool(true)) => true,
+            Some(_) => return Err(GenerationError::Schema),
+        };
+        let projected = match value.get("projected") {
+            None => false,
+            Some(Value::Bool(true)) => true,
+            Some(_) => return Err(GenerationError::Schema),
+        };
+        if check.is_some() || bounds.is_some() || fixed || projected {
+            self.annotations.insert(
+                id,
+                Annotations {
+                    check,
+                    bounds,
+                    fixed,
+                    projected,
+                },
+            );
         }
         self.nodes.push(node);
         Ok(id)

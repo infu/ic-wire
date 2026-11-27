@@ -10,6 +10,8 @@ use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, string::String, vec:
 pub use registry::SchemaRegistry;
 use serde_json::{Value, json};
 
+type Projection = fn(&mut SchemaContext) -> Result<Value, GenerationError>;
+
 /// A trusted description of a type's Serde representation.
 ///
 /// This does not implement Serialize/Deserialize. Manual implementations must
@@ -56,6 +58,13 @@ impl SchemaContext {
     /// Schema rejects recursive inline projection or a previously failed
     /// context; Complexity rejects exhausted construction calls or depth.
     pub fn describe<T: Wire + ?Sized>(&mut self) -> Result<Value, GenerationError> {
+        self.describe_projection::<T>(T::schema)
+    }
+
+    fn describe_projection<T: ?Sized>(
+        &mut self,
+        projection: Projection,
+    ) -> Result<Value, GenerationError> {
         if self.failed {
             return Err(GenerationError::Schema);
         }
@@ -74,9 +83,9 @@ impl SchemaContext {
         self.active.push(name);
         self.failed = false;
         let result = if self.names.is_some() {
-            self.named::<T>()
+            self.named::<T>(projection)
         } else {
-            T::schema(self)
+            projection(self)
         };
         self.active.pop();
         // A manual projection cannot hide a failed nested registration.
@@ -203,7 +212,7 @@ impl<T: Wire, E: Wire> Wire for Result<T, E> {
 }
 impl<T: Wire, const N: usize> Wire for [T; N]
 where
-    [T; N]: serde::Serialize,
+    [(); N]: serde::Serialize,
 {
     fn schema(context: &mut SchemaContext) -> Result<Value, GenerationError> {
         Ok(json!({"k":"array","max":N,"item":context.describe::<T>()?}))

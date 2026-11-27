@@ -1,5 +1,7 @@
 //! Named production into the sole JSON/typed-graph admission boundary.
-use super::{GenerationError, SchemaContext, SchemaLimits, ValidatedRegistry, Wire};
+use super::super::{Method, PayloadLimits};
+use super::{GenerationError, Projection, SchemaContext, SchemaLimits, ValidatedRegistry, Wire};
+use crate::evolution::{__private::EvolvingSchema, Method as EvolvingMethod};
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
@@ -8,8 +10,6 @@ use alloc::{
     vec::Vec,
 };
 use serde_json::{Value, json};
-
-type Projection = fn(&mut SchemaContext) -> Result<Value, GenerationError>;
 
 #[derive(Debug)]
 pub(super) struct Names {
@@ -31,6 +31,7 @@ pub(super) struct Names {
 pub struct SchemaRegistry {
     context: SchemaContext,
     limits: SchemaLimits,
+    evolving_roots: BTreeSet<String>,
 }
 
 impl SchemaRegistry {
@@ -64,32 +65,89 @@ impl SchemaRegistry {
                 })),
             },
             limits,
+            evolving_roots: BTreeSet::new(),
         })
     }
 
-    /// Register a concrete root under a public alias; duplicate aliases reject.
+    /// Register a named schema definition; duplicate aliases reject. A fixed
+    /// definition can be emitted in declarations and used as a message field.
     ///
     /// # Errors
     /// Schema rejects invalid/duplicate names or a failed collector. Complexity
     /// rejects exhausted construction allowances. Any error invalidates collection.
     pub fn register<T: Wire + ?Sized>(&mut self, root: &str) -> Result<(), GenerationError> {
+        self.register_projection::<T>(root, T::schema, false)
+    }
+
+    /// Collect both roots of a typed evolvable method and return its client descriptor.
+    ///
+    /// Supply a TypeScript export, public schema aliases and explicit browser
+    /// allowances. The method supplies the frame identity; its Rust allowances
+    /// serve Rust operations. A root alias can be shared by methods using the
+    /// same concrete layout. Pass the returned descriptor to method or manifest
+    /// generation after finishing the registry.
+    ///
+    /// # Errors
+    /// Returns the same collection errors as [`Self::register`]. During
+    /// [`Self::finish`], each root must have an exterior sparse extension block.
+    /// Reachable ordinary records and tuples must be explicitly fixed.
+    /// Generated extension layouts can nest through supported containers.
+    /// Fixed Serde aggregates require ordinary descendants. Opaque extension
+    /// and recovery carriers belong to explicit projection methods.
+    pub fn register_evolving_method<'a, Request: EvolvingSchema, Reply: EvolvingSchema>(
+        &mut self,
+        method: &EvolvingMethod<Request, Reply>,
+        export: &'a str,
+        (request, request_limits): (&'a str, PayloadLimits),
+        (response, response_limits): (&'a str, PayloadLimits),
+    ) -> Result<Method<'a>, GenerationError> {
+        self.register_projection::<Request>(request, Request::describe, true)?;
+        self.register_projection::<Reply>(response, Reply::describe, true)?;
+        self.evolving_roots.insert(String::from(request));
+        self.evolving_roots.insert(String::from(response));
+        Ok(Method {
+            export,
+            id: method.id(),
+            request,
+            response,
+            request_limits,
+            response_limits,
+        })
+    }
+
+    fn register_projection<T: ?Sized>(
+        &mut self,
+        root: &str,
+        projection: Projection,
+        reuse_alias: bool,
+    ) -> Result<(), GenerationError> {
         if self.context.failed {
             return Err(GenerationError::Schema);
         }
         self.context.failed = true;
         super::super::identifier(root)?;
         let names = self.context.names.as_mut().ok_or(GenerationError::Schema)?;
-        names.reserve(root)?;
-        let root = String::from(root);
+        let reuse_alias = reuse_alias && names.definitions.contains_key(root);
+        if !reuse_alias {
+            names.reserve(root)?;
+        }
         self.context.failed = false;
         // describe owns sticky failure, including swallowed nested errors.
-        let schema = self.context.describe::<T>()?;
-        self.context
+        let schema = self.context.describe_projection::<T>(projection)?;
+        let definitions = &mut self
+            .context
             .names
             .as_mut()
             .ok_or(GenerationError::Schema)?
-            .definitions
-            .insert(root, schema);
+            .definitions;
+        if reuse_alias {
+            if definitions.get(root) != Some(&schema) {
+                self.context.failed = true;
+                return Err(GenerationError::Schema);
+            }
+        } else {
+            definitions.insert(String::from(root), schema);
+        }
         Ok(())
     }
 
@@ -122,7 +180,9 @@ impl SchemaRegistry {
             }
         }
         let names = self.context.names.ok_or(GenerationError::Schema)?;
-        ValidatedRegistry::from_metadata(&names.definitions, self.limits)
+        let graph = ValidatedRegistry::from_metadata(&names.definitions, self.limits)?;
+        graph.validate_evolving_roots(&self.evolving_roots)?;
+        Ok(graph)
     }
 }
 
@@ -140,7 +200,10 @@ impl Names {
 }
 
 impl SchemaContext {
-    pub(super) fn named<T: Wire + ?Sized>(&mut self) -> Result<Value, GenerationError> {
+    pub(super) fn named<T: ?Sized>(
+        &mut self,
+        projection: Projection,
+    ) -> Result<Value, GenerationError> {
         let key = core::any::type_name::<T>();
         let names = self.names.as_mut().ok_or(GenerationError::Schema)?;
         if names.verifying {
@@ -149,14 +212,14 @@ impl SchemaContext {
         }
         // Keep each encountered callback, not just one per diagnostic label.
         // Distinct Rust types can have identical type_name spellings.
-        names.checks.push((key, T::schema));
+        names.checks.push((key, projection));
         if let Some(name) = names.labels.get(key) {
             return Ok(json!({"k":"ref","name":name}));
         }
         let name = generated_name(key);
         names.reserve(&name)?;
         names.labels.insert(key, name.clone());
-        let schema = T::schema(self)?;
+        let schema = projection(self)?;
         if self.failed {
             return Err(GenerationError::Schema);
         }

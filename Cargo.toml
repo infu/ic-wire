@@ -4,10 +4,10 @@ exclude = ["qualification"]
 resolver = "3"
 
 [workspace.package]
-version = "0.30.2"
+version = "0.31.1"
 edition = "2024"
 rust-version = "1.100.0"
-license-file = "LICENSE.md"
+license = "Apache-2.0"
 repository = "https://github.com/dragginzgame/ic-wire"
 
 [workspace.dependencies]
@@ -15,7 +15,7 @@ repository = "https://github.com/dragginzgame/ic-wire"
 bytemuck = { version = "1.25.2", default-features = false, features = ["must_cast"] }
 ic-platform-types = { version = "0.21.2", default-features = false }
 # Generated macro output uses the coordinated runtime API; see AGENTS.md.
-ic-wire-derive = { path = "crates/ic-wire-derive", version = "=0.30.2" }
+ic-wire-derive = { path = "crates/ic-wire-derive", version = "=0.31.1" }
 postcard = { version = "1.2.0", default-features = false, features = ["alloc"] }
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
@@ -27,7 +27,7 @@ syn = "3.0.10"
 serde = { version = "1.0.229", default-features = false, features = ["alloc"] }
 
 # Tests and tooling
-toko-tooling = "=0.46.4"
+toko-tooling = "=0.46.7"
 
 [workspace.lints.cargo]
 unused_dependencies = "deny"
