@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, error::Error, path::Path};
 use serde::{Deserialize, Serialize};
 use wire::{
     Direction, Encoding, Error as WireError, List, TextRef,
-    evolution::{Evolve, ExtensionSlot, encode_projected_into},
+    evolution::{Evolve, ExtensionSlot, Projected, encode_projected_into},
     typescript::{Method, PayloadLimits, SchemaRegistry, Wire},
 };
 
@@ -70,7 +70,7 @@ const fn frame(direction: Direction) -> Encoding {
 fn encode_a(direction: Direction) -> Result<Vec<u8>, WireError> {
     let mut output = Vec::new();
     encode_projected_into(&mut output, frame(direction), LIMITS, |ctx| {
-        let rows = ctx.nested(|ctx| {
+        let rows: List<RowA<'_>, 4> = ctx.child().nested(|ctx| {
             ctx.nested(|ctx| {
                 List::new(vec![
                     RowA(
@@ -86,11 +86,8 @@ fn encode_a(direction: Direction) -> Result<Vec<u8>, WireError> {
                 ])
             })
         })?;
-        Ok(PacketA(
-            rows,
-            SEQUENCE,
-            Empty {}.encode_extensions(ctx, &mut [])?,
-        ))
+        let tail = Empty {}.encode_extensions(ctx, &mut [])?;
+        Ok(Projected::new((rows, SEQUENCE), tail.into_raw()))
     })?;
     Ok(output)
 }
@@ -101,7 +98,7 @@ fn encode_b(direction: Direction) -> Result<Vec<u8>, WireError> {
     let mut second = [0; 8];
     let mut tail = [0; 8];
     encode_projected_into(&mut output, frame(direction), LIMITS, |ctx| {
-        let rows = ctx.nested(|ctx| {
+        let rows: List<RowB<'_>, 4> = ctx.child().nested(|ctx| {
             ctx.nested(|ctx| {
                 let first = RowTail {
                     marker: None,
@@ -120,7 +117,7 @@ fn encode_b(direction: Direction) -> Result<Vec<u8>, WireError> {
             })
         })?;
         let tail = PacketTail { flag: Some(false) }.encode_extensions(ctx, &mut tail)?;
-        Ok(PacketB(rows, SEQUENCE, tail))
+        Ok(Projected::new((rows, SEQUENCE), tail.into_raw()))
     })?;
     Ok(output)
 }
@@ -179,11 +176,12 @@ mod tests {
             bytes,
             frame(direction),
             LIMITS,
-            |packet: PacketA<'_>, ctx| {
-                assert_eq!(packet.1, SEQUENCE);
-                Empty::decode_extensions(packet.2, ctx)?;
-                ctx.nested(|rows| {
-                    let [first, second] = packet.0.into_vec().try_into().ok().unwrap();
+            |packet: Projected<'_, (List<RowA<'_>, 4>, u64)>, ctx| {
+                let (list, sequence) = packet.core;
+                assert_eq!(sequence, SEQUENCE);
+                Empty::decode_extensions(ExtensionSlot::from_raw(packet.extensions), ctx)?;
+                ctx.child().nested(|rows| {
+                    let [first, second] = list.into_vec().try_into().ok().unwrap();
                     for (row, expected) in [(first, (777, "first")), (second, (9, "second"))] {
                         rows.nested(|row_ctx| {
                             assert_eq!((row.0, row.1.as_str()), expected);
@@ -202,12 +200,14 @@ mod tests {
             bytes,
             frame(direction),
             LIMITS,
-            |packet: PacketB<'_>, ctx| {
-                assert_eq!(packet.1, SEQUENCE);
-                let tail = PacketTail::decode_extensions(packet.2, ctx)?;
+            |packet: Projected<'_, (List<RowB<'_>, 4>, u64)>, ctx| {
+                let (list, sequence) = packet.core;
+                assert_eq!(sequence, SEQUENCE);
+                let tail =
+                    PacketTail::decode_extensions(ExtensionSlot::from_raw(packet.extensions), ctx)?;
                 assert_eq!(tail.flag, extended.then_some(false));
-                ctx.nested(|rows| {
-                    let [first, second] = packet.0.into_vec().try_into().ok().unwrap();
+                ctx.child().nested(|rows| {
+                    let [first, second] = list.into_vec().try_into().ok().unwrap();
                     for (row, expected, tail) in [
                         (first, (777, "first"), (extended.then_some("extra Δ"), None)),
                         (second, (9, "second"), (None, extended.then_some(()))),

@@ -1,8 +1,9 @@
 use super::{limits, run_typescript};
+use crate::support::{decode, encode};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use wire::typescript::{SchemaLimits, ValidatedRegistry};
-use wire::{Encoding, Error, Text, decode, encode};
+use wire::{Encoding, Error, Text};
 
 #[test]
 fn wide_integers_and_utf8_exchange_without_normalizing_retained_input() {
@@ -13,7 +14,7 @@ fn wide_integers_and_utf8_exchange_without_normalizing_retained_input() {
     ]);
     let graph = ValidatedRegistry::from_metadata(&types, SchemaLimits::default()).unwrap();
     let mut cases = Vec::new();
-    for (value, bytes) in [
+    for (value, mut bytes) in [
         (0_u64, vec![0]),
         (128, vec![128, 1]),
         (
@@ -21,24 +22,27 @@ fn wide_integers_and_utf8_exchange_without_normalizing_retained_input() {
             vec![255, 255, 255, 255, 255, 255, 255, 255, 255, 1],
         ),
     ] {
+        bytes.push(0);
         assert_eq!(encode(&value, Encoding::Payload, limits()).unwrap(), bytes);
         cases.push(json!({"name":"Unsigned","value":value.to_string(),"bytes":bytes}));
     }
-    for (value, bytes) in [
+    for (value, mut bytes) in [
         (0_i128, vec![0]),
         (-1, vec![1]),
         (i128::MIN, [vec![255; 18], vec![3]].concat()),
         (i128::MAX, [vec![254], vec![255; 17], vec![3]].concat()),
     ] {
+        bytes.push(0);
         assert_eq!(encode(&value, Encoding::Payload, limits()).unwrap(), bytes);
         cases.push(json!({"name":"Signed","value":value.to_string(),"bytes":bytes}));
     }
-    for (value, bytes) in [
+    for (value, mut bytes) in [
         ("", vec![0]),
         ("é", vec![2, 195, 169]),
         ("\u{feff}a", vec![4, 239, 187, 191, 97]),
         ("😀", vec![4, 240, 159, 152, 128]),
     ] {
+        bytes.push(0);
         assert_eq!(
             encode(
                 &Text::<8>::new(value.into()).unwrap(),
@@ -62,7 +66,7 @@ fn wide_integers_and_utf8_exchange_without_normalizing_retained_input() {
             Err(Error::Malformed)
         );
     }
-    let redundant = [128, 0];
+    let redundant = [128, 0, 0];
     assert_eq!(
         decode::<u64>(&redundant, Encoding::Payload, limits()).unwrap(),
         0

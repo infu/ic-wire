@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, error::Error, path::Path};
 use serde::{Deserialize, Serialize};
 use wire::{
     Encoding, Error as WireError, List, TextRef,
-    evolution::{OpaqueOpen, Recoverable, WriteContext, encode_projected_into},
+    evolution::{OpaqueOpen, Projected, Recoverable, WriteContext, encode_projected_into},
     typescript::{GenerationError, PayloadLimits, SchemaContext, SchemaRegistry, Wire},
 };
 
@@ -42,14 +42,14 @@ impl<const FUTURE: bool> Wire for Packet<'_, FUTURE> {
     fn schema(ctx: &mut SchemaContext) -> Result<Value, GenerationError> {
         let state = state_schema::<FUTURE>(ctx)?;
         let text = ctx.describe::<TextRef<'_, 16>>()?;
-        Ok(json!({"k":"record","fields":[
+        Ok(json!({"k":"extension-record","fields":[
             {"name":"scope","value":{"k":"recover","item":{"k":"record","fields":[
                 {"name":"items","value":{"k":"list","max":4,"item":state}},
                 {"name":"nested","value":{"k":"recover","item":state}},
                 {"name":"witness","value":text}
             ]}}},
             {"name":"tail","value":text}
-        ]}))
+        ],"extensions":[]}))
     }
 }
 
@@ -89,7 +89,7 @@ fn encode(case: Witness) -> Result<Vec<u8>, WireError> {
     let mut state_bytes = [0; 1];
     let mut nested_bytes = [0; 3];
     encode_projected_into(&mut output, Encoding::Payload, LIMITS, |ctx| {
-        let scope = ctx.nested(|scope| {
+        let scope = ctx.child().nested(|scope| {
             if matches!(case, Witness::Absent) {
                 return Ok(Recoverable::absent());
             }
@@ -118,10 +118,10 @@ fn encode(case: Witness) -> Result<Vec<u8>, WireError> {
             })?;
             Recoverable::write(scope, &body, &mut scope_bytes)
         })?;
-        Ok(Packet::<true> {
+        Ok(Projected::empty(Packet::<true> {
             scope,
             tail: TextRef::new("outside")?,
-        })
+        }))
     })?;
     Ok(output)
 }
@@ -190,8 +190,10 @@ mod tests {
             bytes,
             Encoding::Payload,
             LIMITS,
-            |packet: Packet<'_, FUTURE>, ctx| {
-                let projection = ctx.nested(|scope| {
+            |root: Projected<'_, Packet<'_, FUTURE>>, ctx| {
+                root.extensions.visit(ctx, |_, _| Ok(()))?;
+                let packet = root.core;
+                let projection = ctx.child().nested(|scope| {
                     packet.scope.project(scope, |body: Body<'_>, scope| {
                         let first = scope.nested(|scope| {
                             let mut first = None;

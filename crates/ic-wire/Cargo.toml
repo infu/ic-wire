@@ -16,10 +16,8 @@ ignored = ["toko-tooling"]
 service-client = ["typescript"]
 api-manifest = ["typescript"]
 platform-types = ["typescript", "dep:ic-platform-types"]
-derive = ["typescript", "evolution-derive"]
+derive = ["dep:ic-wire-derive"]
 typescript = ["dep:serde_json"]
-evolution = []
-evolution-derive = ["evolution", "dep:ic-wire-derive"]
 
 [dependencies]
 bytemuck.workspace = true

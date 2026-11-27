@@ -4,17 +4,17 @@ Rust declarations for IC Wire. Use the coordinated re-export.
 
 ```toml
 [dependencies]
-ic-wire = { version = "0.30.2", features = ["derive"] }
+ic-wire = { path = "../ic-wire", features = ["derive", "typescript"] }
 serde = { version = "1", features = ["derive"] }
 ```
 
 ```rust
 #[derive(serde::Serialize, serde::Deserialize, ic_wire::typescript::Wire)]
 #[wire(fixed)]
-struct Request { sequence: u64 }
+struct FixedSequence { sequence: u64 }
 ```
 
-The fixed mode describes a supported Serde layout for the validated schema graph.
+A fixed nested type describes a supported Serde layout for the validated schema graph.
 Ordinary enum declarations also use schema projection for their Serde layout.
 Unsupported attributes fail explicitly. Fixed layouts support generics, borrowed
 fields, symmetric field and variant renames, standard `serde_bytes` and qualified
@@ -24,8 +24,7 @@ The same derive works on native and Wasm DTOs. It emits the same schema trait
 implementation on both targets.
 
 Use `#[derive(ic_wire::Wire)]` on the request and reply types of an
-`ic_wire::evolution::Method`. Enable `evolution-derive` for Rust or `derive` to
-also generate client metadata. Add optional fields to the same declaration with
+`ic_wire::Method`. Enable `derive` for Rust and `typescript` for client metadata. Add optional fields to the same declaration with
 `#[wire(id = N)]` and a stable, unused ID. Untagged fields form the positional
 core. Every method root encodes an extension block, including the first release
 with no tagged fields. Tuple structs use the same derive and assign each

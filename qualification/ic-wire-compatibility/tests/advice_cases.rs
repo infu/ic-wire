@@ -1,4 +1,5 @@
 //! Rooted bulk advice contracts on admitted shapes.
+use crate::{grouped_messages, message_schema};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use wire::typescript::{GenerationError, Method, PayloadLimits, SchemaLimits, ValidatedRegistry};
@@ -125,7 +126,10 @@ fn advice_covers_primitive_and_zero_width_lists_without_flagging_bulk_fields() {
 #[test]
 fn generation_requires_one_report_and_acknowledgements_do_not_change_source() {
     let graph = ValidatedRegistry::from_metadata(
-        &BTreeMap::from([("Data".into(), json!({"k":"list","item":{"k":"u","bits":8}}))]),
+        &BTreeMap::from([(
+            "Data".into(),
+            message_schema(json!({"k":"list","item":{"k":"u","bits":8}})),
+        )]),
         SchemaLimits::default(),
     )
     .unwrap();
@@ -144,13 +148,13 @@ fn generation_requires_one_report_and_acknowledgements_do_not_change_source() {
             &BTreeMap::new(),
             |report| {
                 calls += 1;
-                assert_eq!(report.warnings[0].path, "/types/Data/list/u8");
+                assert_eq!(report.warnings[0].path, "/types/Data/items/0/list/u8");
             },
         )
         .unwrap();
     assert_eq!(calls, 1);
     let acks = BTreeMap::from([(
-        "/types/Data/list/u8".into(),
+        "/types/Data/items/0/list/u8".into(),
         "Bounded ordinary fixture".into(),
     )]);
     assert_eq!(
@@ -183,8 +187,8 @@ fn generation_requires_one_report_and_acknowledgements_do_not_change_source() {
     assert_eq!(
         paths,
         [
-            "/methods/upload/request/list/u8",
-            "/methods/upload/response/list/u8"
+            "/methods/upload/request/items/0/list/u8",
+            "/methods/upload/response/items/0/list/u8"
         ]
     );
     let bad = BTreeMap::from([("/x".into(), " ".into())]);
@@ -253,7 +257,10 @@ fn composed_services_and_exponential_graphs_respect_work_limits() {
 #[test]
 fn diagnostic_paths_are_bounded_and_clean_handlers_are_not_skipped() {
     let graph = ValidatedRegistry::from_metadata(
-        &BTreeMap::from([("Empty".into(), json!({"k":"unit"}))]),
+        &BTreeMap::from([(
+            "Empty".into(),
+            json!({"k":"extension-tuple","items":[],"extensions":[]}),
+        )]),
         SchemaLimits::default(),
     )
     .unwrap();
@@ -277,7 +284,7 @@ fn diagnostic_paths_are_bounded_and_clean_handlers_are_not_skipped() {
             "Empty",
             "./runtime.ts",
             PayloadLimits {
-                bytes: 0,
+                bytes: 1,
                 nodes: 1,
                 depth: 1,
             },
@@ -430,7 +437,9 @@ fn application_policy_matches_declarations_across_modules_and_bare_roots() {
     schemas.register::<Vec<Identifier>>("Ids").unwrap();
     schemas.register::<Vec<Other>>("OtherIds").unwrap();
     schemas.register::<Policy>("Policy").unwrap();
-    let graph = schemas.finish().unwrap();
+    let types = serde_json::from_str(&schemas.finish().unwrap().metadata_json().unwrap()).unwrap();
+    let graph =
+        ValidatedRegistry::from_metadata(&grouped_messages(types), Default::default()).unwrap();
     let baseline = graph.metadata_json().unwrap();
     let mut policy = BulkPolicy::default();
     policy
@@ -462,7 +471,10 @@ fn application_policy_matches_declarations_across_modules_and_bare_roots() {
         nodes: 400,
         depth: 10,
     };
-    for (req, rep, remaining) in [("Ids", "Policy", 1), ("OtherIds", "Ids", 1)] {
+    for (req, rep, remaining) in [
+        ("MessageIds", "MessagePolicy", 1),
+        ("MessageOtherIds", "MessageIds", 1),
+    ] {
         let methods = [Method {
             export: "codec",
             id: 1,
@@ -481,7 +493,7 @@ fn application_policy_matches_declarations_across_modules_and_bare_roots() {
             policy.apply(&mut report);
             assert_eq!(report.warnings.len(), remaining);
             let w = &report.warnings[0];
-            if req == "Ids" {
+            if req == "MessageIds" {
                 assert!(w.path.ends_with("/fields/cursor/list/u8"));
             } else {
                 assert_eq!(w.advisory, BulkAdvisory::PackedList);

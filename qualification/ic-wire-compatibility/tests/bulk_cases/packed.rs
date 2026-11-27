@@ -1,8 +1,9 @@
 //! Independent workload patterns; source provenance is in qualification/README.md.
-use super::run_typescript;
+use crate::support::{decode, encode};
+use crate::{grouped_messages, run_typescript};
 use serde_json::json;
-use wire::typescript::{Method, PayloadLimits, SchemaLimits, SchemaRegistry};
-use wire::{Encoding, Limits, List, Packed, decode, encode};
+use wire::typescript::{Method, PayloadLimits, SchemaLimits, SchemaRegistry, ValidatedRegistry};
+use wire::{Encoding, Limits, List, Packed};
 
 const MAX: usize = 16_384;
 
@@ -11,21 +12,25 @@ fn packed_and_ordinary_signed_buffers_preserve_distinct_representations() {
     let mut registry = SchemaRegistry::new(SchemaLimits::default()).unwrap();
     registry.register::<Packed<i16, MAX>>("Packed").unwrap();
     registry.register::<List<i16, MAX>>("Ordinary").unwrap();
-    let graph = registry.finish().unwrap();
+    let definitions =
+        serde_json::from_str(&registry.finish().unwrap().metadata_json().unwrap()).unwrap();
+    let graph =
+        ValidatedRegistry::from_metadata(&grouped_messages(definitions), SchemaLimits::default())
+            .unwrap();
     let packed = PayloadLimits {
-        bytes: (2 * MAX + 3) as u64,
-        nodes: 1,
-        depth: 1,
+        bytes: (2 * MAX + 4) as u64,
+        nodes: 2,
+        depth: 2,
     };
     let ordinary = PayloadLimits {
-        bytes: (3 * MAX + 3) as u64,
-        nodes: (MAX + 1) as u64,
-        depth: 2,
+        bytes: (3 * MAX + 4) as u64,
+        nodes: (MAX + 2) as u64,
+        depth: 3,
     };
     let module = graph
         .payload_module(
             "packedPayload",
-            "Packed",
+            "MessagePacked",
             "./runtime-adapter.ts",
             packed,
             &Default::default(),
@@ -38,16 +43,16 @@ fn packed_and_ordinary_signed_buffers_preserve_distinct_representations() {
                 Method {
                     export: "packed",
                     id: 7,
-                    request: "Packed",
-                    response: "Packed",
+                    request: "MessagePacked",
+                    response: "MessagePacked",
                     request_limits: packed,
                     response_limits: packed,
                 },
                 Method {
                     export: "ordinary",
                     id: 8,
-                    request: "Ordinary",
-                    response: "Ordinary",
+                    request: "MessageOrdinary",
+                    response: "MessageOrdinary",
                     request_limits: ordinary,
                     response_limits: ordinary,
                 },
@@ -64,10 +69,10 @@ fn packed_and_ordinary_signed_buffers_preserve_distinct_representations() {
     );
     let payloads: Vec<[Vec<u8>; 2]> = serde_json::from_value(output).unwrap();
     let policy = Limits {
-        bytes: 3 * MAX + 3,
-        allocation: 4_194_304,
-        // Rust charges weighted Serde visits, independently of JS value nodes.
-        nodes: 131_072,
+        bytes: 3 * MAX + 4,
+        // Both passes consume native allowances; JS charges value nodes.
+        allocation: 8_388_608,
+        nodes: 8 * MAX + 64,
         depth: 8,
     };
     let mixed = [i16::MIN, -16385, -65, -64, -1, 0, 63, 64, 16384, i16::MAX];

@@ -149,28 +149,42 @@ fn layout(input: &DeriveInput) -> syn::Result<Layout<'_>> {
 }
 
 fn field_attributes(field: &Field) -> syn::Result<FieldOptions> {
-    let mut options = FieldOptions::default();
-    for attr in &field.attrs {
-        if attr.path().is_ident("wire") {
-            attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("id") && options.id.is_none() {
-                    let value: LitInt = meta.value()?.parse()?;
-                    options.id = Some(value.base10_parse()?);
-                } else if meta.path.is_ident("rename") && options.rename.is_none() {
-                    let value: LitStr = meta.value()?.parse()?;
-                    options.rename = Some(value.value());
-                } else if meta.path.is_ident("required") && !options.required {
-                    options.required = true;
-                } else {
-                    return Err(meta.error(
-                        "expected wire(id = N), wire(required), or wire(rename = \"name\")",
-                    ));
+    let (rename, _) = crate::member_attributes(
+        field
+            .attrs
+            .iter()
+            .filter(|attr| !attr.path().is_ident("wire")),
+        true,
+        None,
+    )?;
+    let mut options = FieldOptions {
+        rename,
+        ..FieldOptions::default()
+    };
+    for attr in field
+        .attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("wire"))
+    {
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("id") && options.id.is_none() {
+                let value: LitInt = meta.value()?.parse()?;
+                options.id = Some(value.base10_parse()?);
+            } else if meta.path.is_ident("rename") {
+                if options.rename.is_some() {
+                    return Err(meta.error("field already has a Serde or Wire rename"));
                 }
-                Ok(())
-            })?;
-        } else {
-            crate::reject_attributes(std::slice::from_ref(attr))?;
-        }
+                let value: LitStr = meta.value()?.parse()?;
+                options.rename = Some(value.value());
+            } else if meta.path.is_ident("required") && !options.required {
+                options.required = true;
+            } else {
+                return Err(
+                    meta.error("expected wire(id = N), wire(required), or wire(rename = \"name\")")
+                );
+            }
+            Ok(())
+        })?;
     }
     Ok(options)
 }
@@ -370,6 +384,11 @@ fn codec(input: &DeriveInput, owner: &Path, layout: &Layout<'_>) -> TokenStream 
         extension,
         ..
     } = &proxies;
+    let declares_extensions = !layout.extensions.is_empty();
+    let stages_core = layout.core.iter().map(|slot| {
+        let ty = slot.ty;
+        quote!(<#ty as #projection>::MAY_STAGE)
+    });
     let encoded_types = layout.core.iter().map(|slot| {
         let ty = slot.ty;
         quote!(<#ty as #projection>::Encoded<#stage>)
@@ -574,6 +593,8 @@ fn codec(input: &DeriveInput, owner: &Path, layout: &Layout<'_>) -> TokenStream 
             #public_views
 
             impl #implementation #projection for #name #parameters #bounds {
+                const MAY_STAGE: bool = #declares_extensions #(|| #stages_core)*;
+
                 type Encoded<#stage> = #encoded_type where Self: #stage;
                 type Decoded = #decoded_type;
 
@@ -616,9 +637,8 @@ fn codec(input: &DeriveInput, owner: &Path, layout: &Layout<'_>) -> TokenStream 
                     #output: &mut #owner::evolution::__private::Vec<u8>,
                     #encoding: #owner::Encoding,
                     #limits: #owner::Limits,
-                    #scratch: &mut [u8],
                 ) -> ::core::result::Result<(), #owner::Error> {
-                    #inline::encode(self, #output, #encoding, #limits, #scratch)
+                    #inline::encode(self, #output, #encoding, #limits)
                 }
 
                 fn decode_evolving(

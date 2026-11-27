@@ -5,7 +5,7 @@ use ic_platform_runtime::raw;
 
 // measure
 // Return seven instruction counts and both frames for the fixed upload workload.
-// limits : empty request, 104-byte reply
+// limits : empty request, 106-byte reply
 #[expect(unsafe_code, reason = "Fixed no-argument IC query export")]
 #[unsafe(export_name = "canister_query measure")]
 extern "C" fn measure() {

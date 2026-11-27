@@ -1,4 +1,5 @@
 //! Public exporter qualification for IC Wire #4.
+use crate::{message_schema, support::encode};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -50,8 +51,14 @@ fn graph<T: Wire>(swap_fields: bool) -> ValidatedRegistry {
     if swap_fields {
         fields.reverse();
     }
-    types.insert("Reply".into(), json!({"k":"record","fields":fields}));
-    types.insert("Request".into(), json!({"k":"unit"}));
+    types.insert(
+        "Reply".into(),
+        json!({"k":"extension-record","fields":fields,"extensions":[]}),
+    );
+    types.insert(
+        "Request".into(),
+        json!({"k":"extension-tuple","items":[],"extensions":[]}),
+    );
     types.insert("Unused".into(), json!({"k":"bool"}));
 
     ValidatedRegistry::from_metadata(&types, SchemaLimits::default()).unwrap()
@@ -98,8 +105,8 @@ fn nested_tag_and_field_changes_are_visible_with_the_same_routing_id() {
     // Independent byte oracle, including the two versions' opposite meanings.
     let limits = wire::Limits {
         bytes: 8,
-        nodes: 8,
-        allocation: 1024,
+        nodes: 32,
+        allocation: 4096,
         depth: 8,
     };
     for (old, new, tag) in [
@@ -107,12 +114,12 @@ fn nested_tag_and_field_changes_are_visible_with_the_same_routing_id() {
         (Authority::Admin, ChangedAuthority::User, 1),
     ] {
         assert_eq!(
-            wire::encode(&old, wire::Encoding::Payload, limits).unwrap(),
-            [tag]
+            encode(&old, wire::Encoding::Payload, limits).unwrap(),
+            [tag, 0]
         );
         assert_eq!(
-            wire::encode(&new, wire::Encoding::Payload, limits).unwrap(),
-            [tag]
+            encode(&new, wire::Encoding::Payload, limits).unwrap(),
+            [tag, 0]
         );
     }
 }
@@ -122,13 +129,23 @@ fn registration_order_is_stable_and_removing_a_method_only_removes_its_document(
     let collect = |reverse| {
         let mut registry = SchemaRegistry::new(SchemaLimits::default()).unwrap();
         if reverse {
-            registry.register::<Option<Authority>>("Reply").unwrap();
-            registry.register::<()>("Request").unwrap();
+            registry.register::<Option<Authority>>("ReplyBody").unwrap();
+            registry.register::<()>("RequestBody").unwrap();
         } else {
-            registry.register::<()>("Request").unwrap();
-            registry.register::<Option<Authority>>("Reply").unwrap();
+            registry.register::<()>("RequestBody").unwrap();
+            registry.register::<Option<Authority>>("ReplyBody").unwrap();
         }
-        registry.finish().unwrap()
+        let mut types: BTreeMap<String, Value> =
+            serde_json::from_str(&registry.finish().unwrap().metadata_json().unwrap()).unwrap();
+        types.insert(
+            "Request".into(),
+            message_schema(json!({"k":"ref","name":"RequestBody"})),
+        );
+        types.insert(
+            "Reply".into(),
+            message_schema(json!({"k":"ref","name":"ReplyBody"})),
+        );
+        ValidatedRegistry::from_metadata(&types, SchemaLimits::default()).unwrap()
     };
     let a = ("read_role", method("getRole"));
     let b = ("read_role_again", method("getRoleAgain"));
@@ -143,10 +160,17 @@ fn registration_order_is_stable_and_removing_a_method_only_removes_its_document(
 #[test]
 fn recursive_references_terminate_and_unrelated_definitions_are_omitted() {
     let types = BTreeMap::from([
-        ("Request".into(), json!({"k":"unit"})),
+        (
+            "Request".into(),
+            json!({"k":"extension-tuple","items":[],"extensions":[]}),
+        ),
         (
             "Reply".into(),
-            json!({"k":"option","item":{"k":"ref","name":"Reply"}}),
+            message_schema(json!({"k":"ref","name":"Chain"})),
+        ),
+        (
+            "Chain".into(),
+            json!({"k":"option","item":{"k":"ref","name":"Chain"}}),
         ),
         ("Other".into(), json!({"k":"bool"})),
     ]);
@@ -156,7 +180,7 @@ fn recursive_references_terminate_and_unrelated_definitions_are_omitted() {
     let emit = |method| registry.api_manifests(&[(export, method)]).unwrap();
     let original = emit(endpoint);
     let doc: Value = serde_json::from_str(&original[export]).unwrap();
-    assert_eq!(doc["schemas"].as_object().unwrap().len(), 2);
+    assert_eq!(doc["schemas"].as_object().unwrap().len(), 3);
     assert_eq!(doc["schemas"]["Reply"], types["Reply"]);
     endpoint.response_limits.bytes += 1;
     assert_ne!(emit(endpoint), original);
@@ -167,8 +191,11 @@ fn recursive_references_terminate_and_unrelated_definitions_are_omitted() {
 #[test]
 fn combined_output_budget_and_method_admission_are_enforced() {
     let types = BTreeMap::from([
-        ("Request".into(), json!({"k":"unit"})),
-        ("Reply".into(), json!({"k":"bool"})),
+        (
+            "Request".into(),
+            json!({"k":"extension-tuple","items":[],"extensions":[]}),
+        ),
+        ("Reply".into(), message_schema(json!({"k":"bool"}))),
     ]);
     let registry = |output_bytes| {
         ValidatedRegistry::from_metadata(

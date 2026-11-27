@@ -6,12 +6,12 @@
   "request":{"root":"Request","payload_limits":{"bytes":128,"nodes":32,"depth":8}},
   "response":{"root":"Reply","payload_limits":{"bytes":128,"nodes":32,"depth":8}},
   "schemas":{
-    "Reply":{"k":"record","fields":[
+    "Reply":{"k":"extension-record","fields":[
       {"name":"authority","value":{"k":"ref","name":"Authority"}},
-      {"name":"enabled","value":{"k":"bool"}}]},
+      {"name":"enabled","value":{"k":"bool"}}],"extensions":[]},
     "Authority":{"k":"enum","variants":[
       {"name":"User","id":0,"value":{"k":"unit"}},
       {"name":"Admin","id":1,"value":{"k":"unit"}}]},
-    "Request":{"k":"unit"}
+    "Request":{"k":"extension-tuple","items":[],"extensions":[]}
   }
 }

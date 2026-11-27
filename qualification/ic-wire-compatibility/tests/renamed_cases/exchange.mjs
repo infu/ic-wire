@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+const {slotPayload} = await import(new URL('./message.mjs', pathToFileURL(process.argv[1])));
 const { literals } = JSON.parse(readFileSync(0, 'utf8'));
-const { codec } = await import(new URL('./client.ts', pathToFileURL(process.argv[1])).href);
+const { codec: rawPayload } = await import(new URL('./client.ts', pathToFileURL(process.argv[1])).href);
+const codec = slotPayload(rawPayload);
 const { WireError } = await import(pathToFileURL(process.argv[1]).href);
 const values = [
   Object.assign(Object.create(null), { ['__proto__']: false, 'choice-value': { tag: 'ready-now', value: null } }),

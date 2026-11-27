@@ -1,23 +1,24 @@
 # Standalone Wire consumer
 
-Private `ic-wire-consumer` is an application-owned sample-upload contract using
-only Wire's public API and Serde. This crate is a real executable/test workload, not a placeholder,
-production service or deployed migration.
+Private `ic-wire-consumer` qualifies an application-owned upload contract using
+Wire's public API and Serde.
 
 The request contains revision u64, UTF-8 key (32 bytes), opaque content (1 KiB),
 explicit packed i16 samples (64 elements), and an ordinary u16 tag list (8 items).
-The distinct response contains revision and acceptance. Method ID 7 and field
-order are frozen by literal native vectors. Request/response limits are explicit
-and independent; JS value-node policy is separate from Rust weighted admission.
-It owns no transport, endpoint execution, authentication, storage or retries.
+The response contains revision and acceptance. Both records derive `Wire` and
+end in an empty extension block. Its zero length adds one byte per frame. The
+independent literal vectors fix the current method ID (7), direction, core field
+order and extension block. JavaScript uses payload node limits. The Rust receipt
+sets a weighted allocation allowance of 2,112 bytes and a 36-visit limit for
+staging, sizing and writing the projected root.
 
-The library is no_std + alloc. The standalone binary uses std for its entry point
-and assertions, runs both codec directions, and retains work with black_box. It
-builds as native and wasm32-unknown-unknown without an SDK. The library uses the
-current codec directly; its four application functions select the contract
+The library uses `no_std` and `alloc`. The standalone binary uses `std` for its
+entry point and assertions. It runs both codec directions and retains work with
+`black_box`. It builds natively and for `wasm32-unknown-unknown` without an SDK. The library uses the
+current codec directly. Its four application functions select the contract
 identity, direction and allowances.
 
-From the repository root:
+Run these commands from the repository root.
 
 ```sh
 make test-consumer
@@ -27,15 +28,16 @@ IC_WIRE_CHECK_TYPESCRIPT=1 cargo test --manifest-path qualification/Cargo.toml -
 ```
 
 The generator writes payload.ts, methods.ts and the matching runtime.ts into the
-selected directory. Schema generation is opt-in on both targets. The CLI writes files on the host. Its complete
-native/TS exchange is integrated into the existing compatibility harness, which
-runs the clients against the bundled TypeScript runtime and checks returned frames in Rust.
+selected directory. The host CLI enables schema generation with the `schema`
+feature. The native and TypeScript exchange runs the generated clients against
+the bundled runtime and checks the returned frames in Rust.
 
 The client generator and the host-side manifest example use the same
 `upload_contract()` registry and method descriptor. Run `make check-api-manifest`
-to compare current output with the [upload baseline](api/upload.json). A mismatch
-prints a unified diff and fails CI. To review a candidate without overwriting the
-baseline, run:
+to compare current output with the checked-in manifest. A mismatch prints a
+unified diff and fails CI. [Upload baseline](api/upload.json)
+
+Run this command to compare a candidate while preserving the baseline.
 
 ```sh
 cargo run --quiet --locked --manifest-path qualification/Cargo.toml -p ic-wire-consumer \
@@ -43,10 +45,9 @@ cargo run --quiet --locked --manifest-path qualification/Cargo.toml -p ic-wire-c
 diff -u qualification/ic-wire-consumer/api/upload.json /tmp/upload-candidate.json
 ```
 
-The initial baseline matches the schema, roots, ID and client allowances in the
-0.26.1 archive-generated upload client. Its bytes are exercised by the independent
-request and reply frame vectors. This fixture has one application contract. Final
-canister export coverage is tracked separately in [IC Tooling #16](https://github.com/dragginzgame/ic-tooling/issues/16).
+The baseline records the sparse request and reply schemas, method ID and client
+allowances. Final canister export coverage is tracked in
+[IC Tooling #16](https://github.com/dragginzgame/ic-tooling/issues/16).
 
 Linux CI runs `make check-wasm-host` to build and execute a Wasm consumer
 that derives a schema for a payment containing a Platform Account, checks its
@@ -55,19 +56,17 @@ Strict checking requires the private compiler installation described in the
 [parent README](../README.md). The generator itself needs neither npm nor Node.
 
 Generation always prints bulk-field diagnostics. The bounded ordinary `tags`
-list deliberately produces advice; qualification retains that control instead of
-silently converting it to packed words. Append `--deny-warnings` after the output
-directory to enforce review in CI: the command fails before creating artifacts.
+list exercises the advice to use packed words. Append `--deny-warnings` after
+the output directory to fail before artifact creation when warnings occur.
 The library `clients(runtime, diagnostics)` requires a handler and reports the
 payload and method generations separately. Production users acknowledge exact
 paths with reasons through the Wire generation APIs, preserving field constraints.
 
 Native tests check independent literal frames, every truncation, wrong method and
-direction, oversized frames, trailing bytes and malformed boolean replies. The SDK-free Wasm workload runs
-under Node with zero host imports. The codec-only dependency graph contains no schema JSON, Wire macro, SDK or transport dependency (Serde's
-own derive remains a build-time dependency).
+direction, oversized frames, trailing bytes and malformed boolean replies. The
+Wasm workload runs under Node with zero host imports. The codec-only build uses
+Wire and Serde derives at compile time. Schema generation and IC exports have
+separate feature flags.
 
-These checks establish standalone integration. `make measure-consumer-wasm`
-separately measures current opt-z/opt-3 artifacts; see
-[measurement scope](../../docs/design/performance.md). Debug artifact size and
-Node execution do not establish IC costs or browser performance.
+`make measure-consumer-wasm` measures current opt-z and opt-3 artifacts. The IC
+instruction probe measures platform execution. [Measurement scope](../../docs/design/performance.md)

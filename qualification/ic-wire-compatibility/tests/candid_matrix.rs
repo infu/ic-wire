@@ -1,4 +1,6 @@
 //! Matched values encoded as Wire payloads and single-argument Candid messages.
+mod support;
+
 use candid::CandidType;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::fmt::Debug;
@@ -95,9 +97,9 @@ fn checked_wire_len<T: Serialize + DeserializeOwned + PartialEq + Debug>(
     encoding: Encoding,
     limits: Limits,
 ) -> usize {
-    let payload = wire::encode(value, encoding, limits).unwrap();
+    let payload = support::encode(value, encoding, limits).unwrap();
     assert_eq!(
-        &wire::decode::<T>(&payload, encoding, limits).unwrap(),
+        &support::decode::<T>(&payload, encoding, limits).unwrap(),
         value
     );
     payload.len()
@@ -257,10 +259,10 @@ fn float_bits() {
             nodes: 32,
             depth: 8,
         };
-        let wire = wire::encode(&value, Encoding::Payload, limits).unwrap();
+        let wire = support::encode(&value, Encoding::Payload, limits).unwrap();
         let message = candid::encode_one(value).unwrap();
         assert_eq!(
-            wire::decode::<f32>(&wire, Encoding::Payload, limits)
+            support::decode::<f32>(&wire, Encoding::Payload, limits)
                 .unwrap()
                 .to_bits(),
             bits
@@ -308,8 +310,8 @@ fn platform_identities() {
             ("nonzero", Some([17; 32])),
         ] {
             let account = Account { owner, subaccount };
-            let bytes = wire::encode(&account, Encoding::Payload, limits).unwrap();
-            let actual: Account = wire::decode(&bytes, Encoding::Payload, limits).unwrap();
+            let bytes = support::encode(&account, Encoding::Payload, limits).unwrap();
+            let actual: Account = support::decode(&bytes, Encoding::Payload, limits).unwrap();
             assert_eq!((actual.owner, actual.subaccount), (owner, subaccount));
             let message = candid::encode_one(CandidAccount {
                 owner: candid_owner,
@@ -363,7 +365,7 @@ where
     let candid = message.len();
     if WIDTH == 32 && len == 511 {
         assert_eq!(
-            wire::encode(&hashes, Encoding::Payload, MATRIX_LIMITS),
+            support::encode(&hashes, Encoding::Payload, MATRIX_LIMITS),
             Err(wire::Error::Limit(LimitKind::Nodes))
         );
     }
@@ -411,18 +413,19 @@ fn finite_float_layouts() {
                 16_384 / width,
             ] {
                 let values: Vec<_> = pattern.into_iter().cycle().take(len).collect();
-                let plain = wire::encode(&values, Encoding::Payload, MATRIX_LIMITS).unwrap();
+                let plain = support::encode(&values, Encoding::Payload, MATRIX_LIMITS).unwrap();
                 let message = candid::encode_one(&values).unwrap();
                 let bulk = $bulk(values);
-                let packed = wire::encode(&bulk, Encoding::Payload, MATRIX_LIMITS).unwrap();
+                let packed = support::encode(&bulk, Encoding::Payload, MATRIX_LIMITS).unwrap();
                 // Ordinary prefixes count elements. Bulk prefixes count payload bytes.
                 let prefix_bytes = |n| 1 + usize::from(n >= 128) + usize::from(n >= 16_384);
-                assert_eq!(plain.len(), len * width + prefix_bytes(len));
-                assert_eq!(packed.len(), len * width + prefix_bytes(len * width));
+                assert_eq!(plain.len(), len * width + prefix_bytes(len) + 1);
+                assert_eq!(packed.len(), len * width + prefix_bytes(len * width) + 1);
                 for decoded in [
-                    wire::decode::<Vec<$float>>(&plain, Encoding::Payload, MATRIX_LIMITS).unwrap(),
+                    support::decode::<Vec<$float>>(&plain, Encoding::Payload, MATRIX_LIMITS)
+                        .unwrap(),
                     candid::decode_one::<Vec<$float>>(&message).unwrap(),
-                    wire::decode::<$bulk>(&packed, Encoding::Payload, MATRIX_LIMITS)
+                    support::decode::<$bulk>(&packed, Encoding::Payload, MATRIX_LIMITS)
                         .unwrap()
                         .0,
                 ] {
@@ -443,12 +446,13 @@ fn finite_float_layouts() {
             }
             for invalid in [<$float>::INFINITY, <$float>::NEG_INFINITY, <$float>::NAN] {
                 let value = $bulk(vec![1.0, invalid]);
-                assert!(wire::encode(&value, Encoding::Payload, MATRIX_LIMITS).is_err());
+                assert!(support::encode(&value, Encoding::Payload, MATRIX_LIMITS).is_err());
                 let mut payload = vec![u8::try_from(2 * width).unwrap()];
                 payload.extend_from_slice(&(1.0 as $float).to_le_bytes());
                 payload.extend_from_slice(&invalid.to_le_bytes());
+                payload.push(0);
                 assert!(matches!(
-                    wire::decode::<$bulk>(&payload, Encoding::Payload, MATRIX_LIMITS),
+                    support::decode::<$bulk>(&payload, Encoding::Payload, MATRIX_LIMITS),
                     Err(wire::Error::Malformed)
                 ));
             }
@@ -530,7 +534,7 @@ fn utf8_length_prefixes() {
             let value = glyph.repeat(bytes / glyph.len()) + &"x".repeat(bytes % glyph.len());
             assert_eq!(value.len(), bytes);
             let (wire, candid) = lengths(&value, Encoding::Payload);
-            assert_eq!(wire, bytes + prefix);
+            assert_eq!(wire, bytes + prefix + 1);
             println!(
                 "text/{name}/{bytes}\t{}\t{bytes}\t{wire}\t{candid}",
                 value.chars().count()
@@ -605,7 +609,7 @@ fn optional_and_zero_byte_elements() {
             .take(count)
             .collect();
         let (wire, candid) = lengths(&units, Encoding::Payload);
-        assert_eq!(wire, if count < 128 { 1 } else { 2 });
+        assert_eq!(wire, if count < 128 { 2 } else { 3 });
         println!("unit-list/{count}\t{wire}\t{candid}");
         compare(&format!("optional-unit-list/{count}"), &optional_units);
         compare(&format!("nested-option-list/{count}"), &nested);
@@ -738,12 +742,12 @@ fn one_byte_varint_edges() {
         println!("varint-edges/{name}\t{ordinary}\t{candid}\t{packed}");
     }
     println!("case\twire_payload_bytes\tcandid_message_bytes\tpacked_wire_bytes");
-    check("u16", vec![0_u16, 127, 128], 5);
-    check("u32", vec![0_u32, 127, 128], 5);
-    check("u64", vec![0_u64, 127, 128], 5);
-    check("i16", vec![-65_i16, -64, 63, 64], 7);
-    check("i32", vec![-65_i32, -64, 63, 64], 7);
-    check("i64", vec![-65_i64, -64, 63, 64], 7);
+    check("u16", vec![0_u16, 127, 128], 6);
+    check("u32", vec![0_u32, 127, 128], 6);
+    check("u64", vec![0_u64, 127, 128], 6);
+    check("i16", vec![-65_i16, -64, 63, 64], 8);
+    check("i32", vec![-65_i32, -64, 63, 64], 8);
+    check("i64", vec![-65_i64, -64, 63, 64], 8);
 }
 
 /// Both coordinate layouts represent exactly three axes per point.

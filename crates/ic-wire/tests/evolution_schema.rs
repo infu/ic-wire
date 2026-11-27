@@ -182,7 +182,58 @@ fn fixed_derive_marks_local_aggregates_without_implicit_claims_about_children() 
     assert!(variants[2]["value"].get("fixed").is_none());
 }
 
-#[cfg(feature = "evolution")]
+#[cfg(feature = "derive")]
+#[test]
+fn serde_dto_annotations_keep_names_and_borrows_in_nested_wire_records() {
+    use ic_wire::{Encoding, Limits, Wire, decode, encode};
+    use serde as dto_serde;
+
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize, Wire)]
+    #[serde(crate = "dto_serde")]
+    struct Item<'a> {
+        #[serde(rename = "displayName", borrow)]
+        name: &'a str,
+        #[wire(id = 1)]
+        #[serde(rename = "ratingScore")]
+        rating: Option<u8>,
+    }
+
+    #[derive(Debug, PartialEq, Wire)]
+    struct Envelope<'a> {
+        item: Item<'a>,
+    }
+
+    let graph =
+        ValidatedRegistry::from_type::<Envelope<'_>>("Root", SchemaLimits::default()).unwrap();
+    let exported: Value = serde_json::from_str(&graph.metadata_json().unwrap()).unwrap();
+    let item = &exported["Root"]["fields"][0]["value"];
+    assert_eq!(item["fields"][0]["name"], "displayName");
+    assert_eq!(item["extensions"][0]["name"], "ratingScore");
+    assert_eq!(item["extensions"][0]["id"], 1);
+
+    let value = Envelope {
+        item: Item {
+            name: "hi",
+            rating: Some(8),
+        },
+    };
+    let limits = Limits {
+        bytes: 64,
+        allocation: 4096,
+        nodes: 64,
+        depth: 8,
+    };
+    let bytes = encode(&value, Encoding::Payload, limits).unwrap();
+    assert_eq!(bytes, [2, b'h', b'i', 3, 1, 1, 8, 0]);
+    let decoded: Envelope<'_> = decode(&bytes, Encoding::Payload, limits).unwrap();
+    assert_eq!(decoded, value);
+    assert_eq!(decoded.item.name.as_ptr(), bytes[1..].as_ptr());
+    assert_eq!(
+        postcard::to_allocvec(&value.item).unwrap(),
+        [2, b'h', b'i', 1, 8]
+    );
+}
+
 mod typed_methods {
     use super::*;
     use core::marker::PhantomData;
@@ -387,10 +438,7 @@ mod typed_methods {
         assert_eq!(registry.finish().unwrap_err(), GenerationError::Schema);
     }
 
-    #[cfg(all(
-        feature = "platform-types",
-        any(feature = "derive", feature = "evolution-derive")
-    ))]
+    #[cfg(all(feature = "platform-types", feature = "derive"))]
     #[test]
     fn typed_method_uses_the_published_account_layout_as_fixed() {
         use ic_platform_types::{Account, Principal};
@@ -418,9 +466,7 @@ mod typed_methods {
             },
         };
         let mut output = Vec::new();
-        method
-            .encode_request(&payment, &mut output, &mut [])
-            .unwrap();
+        method.encode_request(&payment, &mut output).unwrap();
         assert_eq!(&output[11..], &[1, 4, 0, 0]);
         let decoded = method.decode_request(&output).unwrap();
         assert_eq!(decoded.account.owner, payment.account.owner);

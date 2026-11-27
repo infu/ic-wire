@@ -4,10 +4,11 @@
 
 ### ➕ Added
 
-- Opt into sparse record and tuple extensions, stable open variants, and bounded
+- Use sparse record and tuple extensions, stable open variants, and bounded
   branch recovery from Rust declarations and generated TypeScript clients.
 - Declare typed evolving methods with `#[derive(Wire)]` on request and reply
   roots. Add optional fields to the original Rust declaration with stable IDs.
+  Typed encoders manage bounded temporary storage for field additions.
 - Derive nested record and tuple evolution through common containers. Validate
   new required record fields against the deployed request and reply directions.
 - Compare proposed method manifests against supported baselines in request and
@@ -17,10 +18,13 @@
 
 ### ⚠️ Breaking
 
-- `#[derive(Wire)]` defaults to an extensible struct or tuple. Mark ordinary
-  Serde struct and tuple layouts with `#[wire(fixed)]` for schema projection.
-- When matching Wire errors exhaustively, handle `Incompatible` with the Rust
-  evolution feature and `'incompatible'` in generated TypeScript runtimes.
+- Use the evolving message layout through the normal Rust codec and generated
+  client APIs. Every public message has a sparse root, including manually
+  projected messages. Rebuild positional callers and regenerate clients.
+- Mark a nested Serde layout with `#[wire(fixed)]` when its fields are positional.
+  The `derive` feature enables Rust macros. Schema tooling is a separate feature.
+- Match `Error::Incompatible` and the browser runtime's `'incompatible'` code
+  when handling unknown required cases or fields.
 
 ### 🧪 Testing
 

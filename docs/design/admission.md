@@ -20,14 +20,15 @@ One unit represents eight conservative allowance bytes, not measured live heap.
 | Decode sequence/map/enum access | 0 | 0 | Visitor depth |
 | Decode tuple/struct variant visitor | 0 | 0 | Access depth, no extra outer charge |
 | Decode borrowed/owned text or byte span | 0 | span length | No extra depth check |
+| Evolution projection scope | 1 | 0 | Check the scope's depth |
 | Encode bounded value | 4 | 2 * size_of_val(value), checked | Require current depth + 2 (saturating) |
 | Encode child | Through bounded value | Through bounded value | Parent depth + 1 |
 | Encode text/bytes | 0 | span length | No additional check |
 
 Every failed debit sets a sticky refusal. Subsequent visits fail and errors map
 to `Error::Limit(kind)`. Within one visit, an existing refusal wins, then depth, nodes and allocation in that order. A later buffer debit can still succeed; it does
-not clear refusal. Trusted custom Serde may catch an error and return success;
-there is no additional post-success refusal check in the current contract.
+not clear refusal. The message path checks the meter after preparation,
+decoding, and projection, so a caught refusal still rejects the message.
 Sequence and map size hints are suppressed before consumer visitors reserve.
 An element's seed charge is in addition to its deserializer charge. Zero-sized
 elements still consume nodes. Type sizes are target-dependent; borrowed and
@@ -44,9 +45,11 @@ can change re-encoded bytes. Retain original input for hashes/signatures/retries
    little-endian method or direction as Identity.
 3. For frames, subtract 11 from both byte and allocation allowances with checked
    subtraction; failure is Limit. Nodes and depth remain unchanged.
-4. Deserialize once through admission and Postcard. A failing operation maps to
-   Limit after a meter refusal, otherwise Malformed.
-5. After successful deserialization, reject remaining input as Trailing.
+4. Deserialize the sparse-root structure through bounded Postcard. A failing
+   operation maps to Limit after a meter refusal, otherwise Malformed.
+5. Reject trailing bytes, then project known extensions and variant bodies
+   through the shared meter. Missing required fields and unfamiliar required
+   cases report Incompatible when the enclosing projection cannot recover.
 
 Primitive acceptance belongs to published Postcard 1.2.0, with Serde 1.0.229.
 Redundant varints remain admitted. A length-prefixed Rust `char` must contain
@@ -54,7 +57,18 @@ exactly one Unicode scalar. Multiple scalars produce `Error::Malformed`.
 No reserialization/canonicality pass is introduced. Incremental decoding may
 allocate a valid prefix before encountering malformed later input.
 
-`LimitKind::Output` identifies a short caller slice. `LimitKind::Field` identifies a bound exceeded in a field constructor. A Serde visitor rejecting invalid field data still reports `Malformed`. Allocation failure after successful admission remains `Error::Allocation`.
+`LimitKind::Output` identifies a short destination. `LimitKind::Scratch`
+identifies insufficient temporary storage in an explicit projection.
+`LimitKind::Field` identifies a bound exceeded in a field constructor.
+A Serde visitor rejecting invalid field data still reports `Malformed`.
+Allocation failure after successful admission remains `Error::Allocation`.
+
+Typed encoders stage extensions on the stack. A staging capacity refusal can
+trigger a retry with a bounded heap buffer. Every attempt consumes the same
+node allowance. After a scratch refusal, temporary views are dropped and
+their allocation charges are reclaimed. Heap scratch capacity and the
+successful preparation count toward the final write's allocation allowance.
+Byte, traversal and final output refusals propagate immediately.
 
 ## Narrow reuse decision
 

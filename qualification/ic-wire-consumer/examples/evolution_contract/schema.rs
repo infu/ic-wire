@@ -8,10 +8,10 @@ use wire::{
 
 impl<const REV: u8> Wire for Batch<'_, Row<'_, REV>> {
     fn schema(ctx: &mut SchemaContext) -> Result<Value, GenerationError> {
-        Ok(json!({"k":"record","fields":[
+        Ok(json!({"k":"extension-record","fields":[
             {"name":"groups","value":{"k":"list","max":4,"item":ctx.describe::<Group<Row<'_,REV>>>()?}},
             {"name":"suffix","value":ctx.describe::<TextRef<'_,32>>()?}
-        ]}))
+        ],"extensions":[]}))
     }
 }
 

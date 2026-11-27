@@ -1,7 +1,10 @@
 //! Recursive projection through auto-derived arrays and sequences.
-#![cfg(feature = "evolution-derive")]
+#![cfg(feature = "derive")]
 
-use ic_wire::{Error, LimitKind, Limits, TextRef, Wire, evolution::Method};
+use ic_wire::{
+    BytesRef, Encoding, Error, LimitKind, Limits, TextRef, Wire, decode, encode, encode_into,
+    encode_to_slice, evolution::Method,
+};
 
 const LIMITS: Limits = Limits {
     bytes: 128,
@@ -56,10 +59,14 @@ fn nested_arrays_and_vecs_project_known_values_and_reuse_input_borrows() {
         witness: 42,
     };
     let mut frame = Vec::new();
-    let mut scratch = [0; 32];
-    method_v2()
-        .encode_reply(&value, &mut frame, &mut scratch)
-        .unwrap();
+    method_v2().encode_reply(&value, &mut frame).unwrap();
+    assert_eq!(
+        &frame[11..],
+        [
+            1, b'a', 0, 1, b'b', 12, 1, 10, 9, b'd', b'e', b't', b'a', b'i', b'l', b' ', 0xce,
+            0x94, 1, 1, b'c', 0, 42, 0,
+        ]
+    );
 
     let latest = method_v2().decode_reply(&frame).unwrap();
     assert_eq!(latest, value);
@@ -73,9 +80,11 @@ fn nested_arrays_and_vecs_project_known_values_and_reuse_input_borrows() {
     assert_eq!(first.spare[0].name.as_str(), "c");
 
     let mut old_frame = Vec::new();
-    method_v1()
-        .encode_reply(&first, &mut old_frame, &mut [])
-        .unwrap();
+    method_v1().encode_reply(&first, &mut old_frame).unwrap();
+    assert_eq!(
+        &old_frame[11..],
+        [1, b'a', 0, 1, b'b', 0, 1, 1, b'c', 0, 42, 0]
+    );
     let upgraded = method_v2().decode_reply(&old_frame).unwrap();
     assert_eq!(upgraded.witness, 42);
     assert_eq!(upgraded.fixed_count[1].detail, None);
@@ -83,7 +92,7 @@ fn nested_arrays_and_vecs_project_known_values_and_reuse_input_borrows() {
 }
 
 #[test]
-fn nested_projection_obeys_the_frame_limits_and_scratch_capacity() {
+fn nested_projection_obeys_the_frame_limits() {
     let value = Collection {
         fixed_count: [
             ItemV2 {
@@ -98,17 +107,8 @@ fn nested_projection_obeys_the_frame_limits_and_scratch_capacity() {
         spare: Vec::new(),
         witness: 42,
     };
-    let mut frame = vec![0];
-    assert_eq!(
-        method_v2().encode_reply(&value, &mut frame, &mut [0; 2]),
-        Err(Error::Limit(LimitKind::Output))
-    );
-    assert!(frame.is_empty());
-
-    let mut scratch = [0; 32];
-    method_v2()
-        .encode_reply(&value, &mut frame, &mut scratch)
-        .unwrap();
+    let mut frame = Vec::new();
+    method_v2().encode_reply(&value, &mut frame).unwrap();
     let low_allocation = Limits {
         allocation: 256,
         ..LIMITS
@@ -124,7 +124,7 @@ fn nested_projection_obeys_the_frame_limits_and_scratch_capacity() {
     );
     let mut constrained_output = Vec::new();
     assert_eq!(
-        constrained.encode_reply(&value, &mut constrained_output, &mut scratch),
+        constrained.encode_reply(&value, &mut constrained_output),
         Err(Error::Limit(LimitKind::Allocation)),
     );
     assert!(constrained_output.is_empty());
@@ -140,8 +140,85 @@ fn nested_projection_obeys_the_frame_limits_and_scratch_capacity() {
         Err(Error::Limit(LimitKind::Depth))
     );
     assert_eq!(
-        method.encode_reply(&value, &mut frame, &mut scratch),
+        method.encode_reply(&value, &mut frame),
         Err(Error::Limit(LimitKind::Depth))
     );
     assert!(frame.is_empty());
+}
+
+#[test]
+fn ordinary_encoding_stages_large_extensions_nested_inside_extensions() {
+    #[derive(Debug, PartialEq, Wire)]
+    struct V1 {
+        sequence: u8,
+    }
+
+    #[derive(Debug, PartialEq, Wire)]
+    struct V2<'a> {
+        sequence: u8,
+        #[wire(id = 3)]
+        detail: Option<Detail<'a>>,
+    }
+
+    #[derive(Debug, PartialEq, Wire)]
+    struct Detail<'a> {
+        status: u8,
+        #[wire(id = 1)]
+        attachment: Option<BytesRef<'a, 4096>>,
+    }
+
+    const PREFIX: [u8; 14] = [
+        9, 0x8b, 0x20, 3, 0x88, 0x20, 7, 0x85, 0x20, 1, 0x82, 0x20, 0x80, 0x20,
+    ];
+    const BYTES: usize = 4096 + PREFIX.len();
+    let limits = Limits {
+        bytes: BYTES,
+        allocation: 256 * 1024,
+        ..LIMITS
+    };
+    let payload = Encoding::Payload;
+    let attachment = [42; 4096];
+    let original = V1 { sequence: 9 };
+    let revised = V2 {
+        sequence: 9,
+        detail: Some(Detail {
+            status: 7,
+            attachment: Some(BytesRef::new(&attachment).unwrap()),
+        }),
+    };
+    let mut encoded = encode(&original, payload, limits).unwrap();
+    assert_eq!(encoded, [9, 0]);
+    assert_eq!(
+        decode::<V2<'_>>(&encoded, payload, limits),
+        Ok(V2 {
+            sequence: 9,
+            detail: None
+        })
+    );
+    encode_into(&revised, payload, limits, &mut encoded).unwrap();
+    assert_eq!(encoded.len(), BYTES);
+    assert_eq!(encoded[..PREFIX.len()], PREFIX);
+    assert_eq!(encoded[PREFIX.len()..], attachment);
+    assert_eq!(decode::<V1>(&encoded, payload, limits), Ok(original));
+    assert_eq!(
+        decode::<V2<'_>>(&encoded, payload, limits).unwrap(),
+        revised
+    );
+
+    let mut destination = vec![0xff; BYTES + 1];
+    assert_eq!(
+        encode_to_slice(&revised, payload, limits, &mut destination),
+        Ok(encoded.as_slice())
+    );
+    assert_eq!(destination[BYTES], 0xff);
+
+    let short = Limits {
+        bytes: BYTES - 1,
+        ..limits
+    };
+    assert_eq!(
+        encode_into(&revised, payload, short, &mut encoded),
+        Err(Error::Limit(LimitKind::Bytes))
+    );
+    assert!(encoded.is_empty());
 }

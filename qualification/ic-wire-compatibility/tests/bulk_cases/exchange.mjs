@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
+const {fieldCodec, slotPayload, slotMethod} = await import(new URL('./message.mjs', pathToFileURL(process.argv[1])));
 let stdin = ''; for await (const chunk of process.stdin) stdin += chunk;
 const fixture = JSON.parse(stdin), url = pathToFileURL(process.argv[1]);
 const { WireError, createPayloadCodec } = await import(url);
-const { blob } = await import(new URL('./client.ts', url));
-const { blobFrame } = await import(new URL('./frame-client.ts', url));
+const { blob: rawBlob } = await import(new URL('./client.ts', url));
+const { blobFrame: rawFrame } = await import(new URL('./frame-client.ts', url));
+const blob = slotPayload(rawBlob), blobFrame = slotMethod(rawFrame);
 const refusal = (action, code) => assert.throws(action, error => error instanceof WireError && error.code === code);
 const prefixes = [[0], [63], [64], [127], [128, 1], [255, 127], [128, 128, 1], [128, 128, 64]];
 const outputs = [];
@@ -12,14 +14,14 @@ for (const [index, size] of fixture.sizes.entries()) {
   // Select a nonzero-offset span with unrelated bytes on each side.
   const backing = new Uint8Array(size + 6).fill(255), value = backing.subarray(3, size + 3);
   for (let i = 0; i < size; i++) value[i] = i % 251;
-  const expected = new Uint8Array(prefixes[index].length + size);
+  const expected = new Uint8Array(prefixes[index].length + size + 1);
   expected.set(prefixes[index]); expected.set(value, prefixes[index].length);
   const encoded = blob.encode(value);
   assert.deepEqual(encoded, expected);
-  const exact = createPayloadCodec({schema:{k:'bytes',max:1048576},bytes:expected.length,nodes:1,depth:1});
+  const exact = fieldCodec(createPayloadCodec, {schema:{k:'bytes',max:1048576},bytes:expected.length,nodes:1,depth:1});
   assert.deepEqual(exact.encode(value), expected);
   assert.deepEqual(exact.decode(expected), value);
-  const short = createPayloadCodec({schema:{k:'bytes',max:1048576},bytes:expected.length-1,nodes:1,depth:1});
+  const short = fieldCodec(createPayloadCodec, {schema:{k:'bytes',max:1048576},bytes:expected.length-1,nodes:1,depth:1});
   refusal(() => short.encode(value), 'limit'); refusal(() => short.decode(expected), 'limit');
   for (const [direction, encode, decode] of [[0, blobFrame.encodeRequest, blobFrame.decodeRequest], [1, blobFrame.encodeResponse, blobFrame.decodeResponse]]) {
     const frame = new Uint8Array(11 + expected.length);
@@ -46,5 +48,5 @@ for (const [index, size] of fixture.sizes.entries()) {
   outputs.push(Array.from(expected));
 }
 refusal(() => blob.encode(new Uint8Array(1048577)), 'limit');
-assert.deepEqual(blob.decode(Uint8Array.of(128, 0)), new Uint8Array());
+assert.deepEqual(blob.decode(Uint8Array.of(128, 0, 0)), new Uint8Array());
 process.stdout.write(JSON.stringify(outputs));

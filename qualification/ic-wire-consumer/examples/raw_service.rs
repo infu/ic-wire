@@ -3,14 +3,18 @@ use core::cell::Cell;
 use ic_platform_runtime::raw;
 use wire::{Direction, Encoding, Limits};
 
+#[path = "records/word.rs"]
+mod word;
+use word::Word;
+
 thread_local! { static COUNT: Cell<u32> = const { Cell::new(0) }; }
 
 fn respond(name: &str, handle: impl FnOnce(u32) -> u32) {
     const LIMITS: Limits = Limits {
-        bytes: 16,
-        allocation: 80,
-        nodes: 4,
-        depth: 3,
+        bytes: 11 + word::PAYLOAD_BYTES,
+        allocation: 800,
+        nodes: 16,
+        depth: 4,
     };
     let mut input = [0; LIMITS.bytes];
     let Some(frame) = input.get_mut(..raw::msg_arg_data_size()) else {
@@ -21,11 +25,13 @@ fn respond(name: &str, handle: impl FnOnce(u32) -> u32) {
         method: wire::method_id(name),
         direction,
     };
-    let request = wire::decode(frame, encoding(Direction::Request), LIMITS)
+    let request: Word = wire::decode(frame, encoding(Direction::Request), LIMITS)
         .unwrap_or_else(|e| raw::trap(e.to_string().as_bytes()));
     let mut output = [0; LIMITS.bytes];
     let reply = wire::encode_to_slice(
-        &handle(request),
+        &Word {
+            value: handle(request.value),
+        },
         encoding(Direction::Response),
         LIMITS,
         &mut output,
@@ -37,7 +43,7 @@ fn respond(name: &str, handle: impl FnOnce(u32) -> u32) {
 
 // read
 // Return the current count plus the supplied offset, saturating at u32::MAX.
-// limits : 16 request and reply bytes
+// limits : 17 request and reply bytes
 #[expect(unsafe_code, reason = "Fixed IC query export")]
 #[unsafe(export_name = "canister_query read")]
 extern "C" fn read() {
@@ -46,7 +52,7 @@ extern "C" fn read() {
 
 // add
 // Add the supplied amount, saturating at u32::MAX, and return the new count.
-// limits : 16 request and reply bytes
+// limits : 17 request and reply bytes
 #[expect(unsafe_code, reason = "Fixed IC update export")]
 #[unsafe(export_name = "canister_update add")]
 extern "C" fn add() {

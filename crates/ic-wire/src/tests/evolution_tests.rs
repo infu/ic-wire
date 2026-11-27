@@ -1,15 +1,14 @@
-//! Literal and admission checks for the experimental projection API.
-#![cfg(feature = "evolution")]
+//! Literal and admission checks for the shared projection engine.
 
-use ic_wire::{
+use crate::{
     Direction, Encoding, Error, LimitKind, Limits,
     evolution::{
-        Extensions, ExtensionsWriter, OpaqueOpen, ReadContext, WriteContext, decode_projected,
-        encode_projected_into, encode_projected_to_slice, encode_projected_to_slice_with,
+        Extensions, ExtensionsWriter, OpaqueOpen, ReadContext, WriteContext, decode_value,
+        encode_value_into, encode_value_to_slice, encode_value_to_slice_with,
     },
 };
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeTuple};
-use std::cell::Cell;
+use std::{boxed::Box, cell::Cell, vec, vec::Vec};
 
 const LIMITS: Limits = Limits {
     bytes: 64,
@@ -27,7 +26,7 @@ fn present_open_scopes_refuse_at_the_first_visit_that_exceeds_the_limits() {
             depth,
             ..LIMITS
         };
-        decode_projected(
+        decode_value(
             &body,
             Encoding::Payload,
             limits,
@@ -78,8 +77,7 @@ fn project<'a>(
 #[test]
 fn open_unknown_payload_skips_without_hiding_known_malformed_data() {
     let body = [11, 1, 2, 4, 2, 2, 1, b'x', 99];
-    let (variant, note, suffix) =
-        decode_projected(&body, Encoding::Payload, LIMITS, project).unwrap();
+    let (variant, note, suffix) = decode_value(&body, Encoding::Payload, LIMITS, project).unwrap();
     assert_eq!((variant, note, suffix), (None, Some("x"), 99));
     assert_eq!(note.unwrap().as_ptr(), body[7..].as_ptr());
 
@@ -96,7 +94,7 @@ fn open_unknown_payload_skips_without_hiding_known_malformed_data() {
         &invalid_note_after_unknown,
     ] {
         assert_eq!(
-            decode_projected(bytes, Encoding::Payload, LIMITS, project),
+            decode_value(bytes, Encoding::Payload, LIMITS, project),
             Err(Error::Malformed)
         );
     }
@@ -105,11 +103,11 @@ fn open_unknown_payload_skips_without_hiding_known_malformed_data() {
 #[test]
 fn extension_order_and_empty_presence_have_distinct_results() {
     assert_eq!(
-        decode_projected(&[2, 0, 99], Encoding::Payload, LIMITS, project),
+        decode_value(&[2, 0, 99], Encoding::Payload, LIMITS, project),
         Ok((Some(true), None, 99))
     );
     assert_eq!(
-        decode_projected(&[2, 3, 2, 1, 0, 99], Encoding::Payload, LIMITS, project),
+        decode_value(&[2, 3, 2, 1, 0, 99], Encoding::Payload, LIMITS, project),
         Ok((Some(true), Some(""), 99))
     );
 
@@ -120,13 +118,13 @@ fn extension_order_and_empty_presence_have_distinct_results() {
         [0, 4, 3, 1, 0, 4, 99], // Last ID has no length.
     ] {
         assert_eq!(
-            decode_projected(&body, Encoding::Payload, LIMITS, project),
+            decode_value(&body, Encoding::Payload, LIMITS, project),
             Err(Error::Malformed)
         );
     }
 
     let body = [0, 5, 1, 0, 2, 1, 0, 99];
-    let preserved = decode_projected(&body, Encoding::Payload, LIMITS, |row: Row<'_>, context| {
+    let preserved = decode_value(&body, Encoding::Payload, LIMITS, |row: Row<'_>, context| {
         let mut saw_retired = false;
         row.extensions.visit(context, |id, field| {
             if id == 1 {
@@ -155,7 +153,7 @@ fn extension_headers_keep_stock_postcard_byte_span_acceptance() {
         bytes: input.len(),
         ..LIMITS
     };
-    let result = decode_projected(
+    let result = decode_value(
         &input,
         Encoding::Payload,
         limits,
@@ -207,7 +205,7 @@ fn malformed_extension_headers_keep_callback_order_and_limit_precedence() {
             (LIMITS, Error::Malformed),
         ] {
             let mut seen = Vec::new();
-            let result = decode_projected(
+            let result = decode_value(
                 &input,
                 Encoding::Payload,
                 limits,
@@ -230,7 +228,7 @@ fn writer_uses_reusable_output_and_caller_scratch() {
     let mut extensions = [0; 8];
     let mut output = Vec::with_capacity(64);
     let original = output.as_ptr();
-    let written = encode_projected_into(&mut output, FRAME, LIMITS, |context| {
+    let written = encode_value_into(&mut output, FRAME, LIMITS, |context| {
         let mut writer = ExtensionsWriter::new(&mut extensions);
         writer.push(context, 1, &())?;
         writer.push(context, 2, "x")?;
@@ -249,11 +247,11 @@ fn writer_uses_reusable_output_and_caller_scratch() {
     );
     assert_eq!(written.as_ptr(), original);
     assert_eq!(
-        decode_projected(written, FRAME, LIMITS, project),
+        decode_value(written, FRAME, LIMITS, project),
         Ok((None, Some("x"), 99))
     );
 
-    let result = encode_projected_into(&mut output, Encoding::Payload, LIMITS, |context| {
+    let result = encode_value_into(&mut output, Encoding::Payload, LIMITS, |context| {
         let mut writer = ExtensionsWriter::new(&mut extensions);
         writer.push(context, 2, "x")?;
         writer.push(context, 2, "y")?;
@@ -280,7 +278,7 @@ fn leaf_decodes_share_exact_limits_and_cannot_hide_refusal() {
         })
     };
     assert_eq!(
-        decode_projected(&body, Encoding::Payload, limits, project),
+        decode_value(&body, Encoding::Payload, limits, project),
         Ok(())
     );
     for (short, kind) in [
@@ -314,7 +312,7 @@ fn leaf_decodes_share_exact_limits_and_cannot_hide_refusal() {
         ),
     ] {
         assert_eq!(
-            decode_projected(&body, Encoding::Payload, short, project),
+            decode_value(&body, Encoding::Payload, short, project),
             Err(Error::Limit(kind))
         );
     }
@@ -323,7 +321,7 @@ fn leaf_decodes_share_exact_limits_and_cannot_hide_refusal() {
         ..limits
     };
     assert_eq!(
-        decode_projected(&body, Encoding::Payload, short, |extensions, context| {
+        decode_value(&body, Encoding::Payload, short, |extensions, context| {
             let _ = project(extensions, context);
             Err::<(), _>(Error::Incompatible)
         }),
@@ -341,7 +339,7 @@ fn writes_share_budget_across_leaves_and_output_passes() {
         ..LIMITS
     };
     let mut encode = |limits| {
-        encode_projected_into(&mut output, Encoding::Payload, limits, |context| {
+        encode_value_into(&mut output, Encoding::Payload, limits, |context| {
             let mut writer = ExtensionsWriter::new(&mut scratch);
             writer.push(context, 1, &())?;
             writer.push(context, 2, &7_u8)?;
@@ -373,7 +371,7 @@ fn single_scratch_pass_keeps_sibling_spans_and_prefix_boundaries() {
     let visits = Cell::new(0);
     let mut scratch = [0; 5];
     let mut output = Vec::new();
-    let bytes = encode_projected_into(&mut output, Encoding::Payload, LIMITS, |ctx| {
+    let bytes = encode_value_into(&mut output, Encoding::Payload, LIMITS, |ctx| {
         let (open, tail) = OpaqueOpen::write_in(ctx, 5, &Counted(&visits), &mut scratch)?;
         let mut writer = ExtensionsWriter::new(tail);
         writer.push(ctx, 2, "x")?;
@@ -390,13 +388,13 @@ fn single_scratch_pass_keeps_sibling_spans_and_prefix_boundaries() {
     assert_eq!(bytes, [11, 1, 2, 4, 2, 2, 1, b'x', 99]);
 
     let payload = [0x2a; 127];
-    let payload = ic_wire::BytesRef::<127>::new(&payload).unwrap();
+    let payload = crate::BytesRef::<127>::new(&payload).unwrap();
     let limits = Limits {
         bytes: 133,
         ..LIMITS
     };
     let mut scratch = [0; 131];
-    let bytes = encode_projected_into(&mut output, Encoding::Payload, limits, |ctx| {
+    let bytes = encode_value_into(&mut output, Encoding::Payload, limits, |ctx| {
         let mut writer = ExtensionsWriter::new(&mut scratch);
         writer.push(ctx, 1, &payload)?;
         Ok(writer.finish())
@@ -408,22 +406,22 @@ fn single_scratch_pass_keeps_sibling_spans_and_prefix_boundaries() {
 
     // The body and minimum prefix fit. Expanding the length requires one
     // extra byte, so return a sticky error before shifting the staged bytes.
-    let result = encode_projected_into(&mut output, Encoding::Payload, limits, |ctx| {
+    let result = encode_value_into(&mut output, Encoding::Payload, limits, |ctx| {
         let mut writer = ExtensionsWriter::new(&mut scratch[..130]);
         assert_eq!(
             writer.push(ctx, 1, &payload),
-            Err(Error::Limit(LimitKind::Output))
+            Err(Error::Limit(LimitKind::Scratch))
         );
         Ok(writer.finish())
     });
-    assert_eq!(result, Err(Error::Limit(LimitKind::Output)));
+    assert_eq!(result, Err(Error::Limit(LimitKind::Scratch)));
     assert!(output.is_empty());
     let too_short = Limits {
         bytes: 130,
         ..limits
     };
     assert_eq!(
-        encode_projected_into(&mut output, Encoding::Payload, too_short, |ctx| {
+        encode_value_into(&mut output, Encoding::Payload, too_short, |ctx| {
             let mut writer = ExtensionsWriter::new(&mut scratch);
             writer.push(ctx, 1, &payload)?;
             Ok(writer.finish())
@@ -436,14 +434,14 @@ fn single_scratch_pass_keeps_sibling_spans_and_prefix_boundaries() {
 #[test]
 fn staged_extension_headers_match_stock_postcard_across_id_and_length_widths() {
     let full = [0x2a; 127];
-    let body = ic_wire::BytesRef::<127>::new(&full).unwrap();
+    let body = crate::BytesRef::<127>::new(&full).unwrap();
     let mut output = Vec::new();
     let mut scratch = [0; 141];
     let limits = Limits {
         bytes: 143,
         ..LIMITS
     };
-    let bytes = encode_projected_into(&mut output, Encoding::Payload, limits, |context| {
+    let bytes = encode_value_into(&mut output, Encoding::Payload, limits, |context| {
         let mut writer = ExtensionsWriter::new(&mut scratch);
         writer.push(context, 127, &())?;
         writer.push(context, 128, &1_u8)?;
@@ -472,10 +470,10 @@ fn caught_scratch_capacity_and_nested_buffer_refusals_stay_hard() {
     }
 
     let mut output = Vec::new();
-    for (bytes, scratch_len, kind) in [(64, 1, LimitKind::Output), (1, 4, LimitKind::Bytes)] {
+    for (bytes, scratch_len, kind) in [(64, 1, LimitKind::Scratch), (1, 4, LimitKind::Bytes)] {
         let mut scratch = [0; 4];
         let limits = Limits { bytes, ..LIMITS };
-        let result = encode_projected_into(&mut output, Encoding::Payload, limits, |ctx| {
+        let result = encode_value_into(&mut output, Encoding::Payload, limits, |ctx| {
             let error = OpaqueOpen::write(ctx, 1, &Catches, &mut scratch[..scratch_len]);
             assert_eq!(error, Err(Error::Limit(kind)));
             Ok(())
@@ -497,7 +495,7 @@ fn caught_scratch_capacity_and_nested_buffer_refusals_stay_hard() {
             allocation: LIMITS.bytes + 8 * units,
             ..LIMITS
         };
-        let result = encode_projected_into(&mut output, Encoding::Payload, limits, |ctx| {
+        let result = encode_value_into(&mut output, Encoding::Payload, limits, |ctx| {
             OpaqueOpen::write(ctx, 1, &Payload, &mut scratch)?;
             Ok(())
         });
@@ -521,7 +519,7 @@ fn projected_slice_keeps_frame_bytes_and_shared_admission() {
     let mut scratch = [0; 3];
     let mut output = [0; 4];
     let mut encode = |limits| {
-        encode_projected_to_slice(&mut output, Encoding::Payload, limits, |ctx| {
+        encode_value_to_slice(&mut output, Encoding::Payload, limits, |ctx| {
             let mut writer = ExtensionsWriter::new(&mut scratch);
             writer.push(ctx, 1, &7_u8)?;
             Ok(writer.finish())
@@ -553,13 +551,13 @@ fn projected_slice_keeps_frame_bytes_and_shared_admission() {
     };
     let mut output = [0; 14];
     let mut expected = Vec::new();
-    encode_projected_into(&mut expected, FRAME, LIMITS, prepare).unwrap();
+    encode_value_into(&mut expected, FRAME, LIMITS, prepare).unwrap();
     assert_eq!(
-        encode_projected_to_slice(&mut output, FRAME, LIMITS, prepare),
+        encode_value_to_slice(&mut output, FRAME, LIMITS, prepare),
         Ok(expected.as_slice())
     );
     assert_eq!(
-        encode_projected_to_slice(&mut output[..13], FRAME, LIMITS, prepare),
+        encode_value_to_slice(&mut output[..13], FRAME, LIMITS, prepare),
         Err(Error::Limit(LimitKind::Output))
     );
 }
@@ -577,12 +575,12 @@ fn projected_slice_keeps_swallowed_final_output_refusals() {
 
     let mut output = [0; 1];
     assert_eq!(
-        encode_projected_to_slice(&mut output, Encoding::Payload, LIMITS, |_| Ok(Catches)),
+        encode_value_to_slice(&mut output, Encoding::Payload, LIMITS, |_| Ok(Catches)),
         Err(Error::Limit(LimitKind::Output))
     );
     let narrow = Limits { bytes: 1, ..LIMITS };
     assert_eq!(
-        encode_projected_to_slice(&mut output, Encoding::Payload, narrow, |_| Ok(Catches)),
+        encode_value_to_slice(&mut output, Encoding::Payload, narrow, |_| Ok(Catches)),
         Err(Error::Limit(LimitKind::Bytes))
     );
 }
@@ -609,9 +607,9 @@ fn scoped_slice_stages_a_borrowed_dto_during_the_final_write() {
             nodes,
             ..LIMITS
         };
-        encode_projected_to_slice_with(&mut output, Encoding::Payload, limits, |destination| {
+        encode_value_to_slice_with(&mut output, Encoding::Payload, limits, |mut destination| {
             let context = destination.context();
-            destination.write(&Lazy(&context))
+            destination.write_value(&Lazy(&context))
         })
         .map(<[u8]>::to_vec)
     };
@@ -623,14 +621,14 @@ fn scoped_slice_stages_a_borrowed_dto_during_the_final_write() {
 fn scoped_slice_publishes_only_after_one_successful_write_and_callback() {
     let mut output = [0xbb; 12];
     assert_eq!(
-        encode_projected_to_slice_with(&mut output, FRAME, LIMITS, |_| Ok(())),
+        encode_value_to_slice_with(&mut output, FRAME, LIMITS, |_| Ok(())),
         Err(Error::Malformed)
     );
     assert_eq!(output, [0xbb; 12]);
 
     assert_eq!(
-        encode_projected_to_slice_with(&mut output, FRAME, LIMITS, |destination| {
-            destination.write(&7_u8)?;
+        encode_value_to_slice_with(&mut output, FRAME, LIMITS, |mut destination| {
+            destination.write_value(&7_u8)?;
             Err(Error::Incompatible)
         }),
         Err(Error::Incompatible)
@@ -639,9 +637,9 @@ fn scoped_slice_publishes_only_after_one_successful_write_and_callback() {
 
     let limits = Limits { nodes: 4, ..LIMITS };
     assert_eq!(
-        encode_projected_to_slice_with(&mut output, FRAME, limits, |destination| {
+        encode_value_to_slice_with(&mut output, FRAME, limits, |mut destination| {
             let context = destination.context();
-            destination.write(&7_u8)?;
+            destination.write_value(&7_u8)?;
             let _ = context.nested(|_| Ok(()));
             Ok(())
         }),
@@ -649,16 +647,17 @@ fn scoped_slice_publishes_only_after_one_successful_write_and_callback() {
     );
     assert_eq!(output[..11], [0xbb; 11]);
 
-    let bytes = encode_projected_to_slice_with(&mut output, FRAME, LIMITS, |destination| {
-        destination.write(&7_u8)
+    let bytes = encode_value_to_slice_with(&mut output, FRAME, LIMITS, |mut destination| {
+        destination.write_value(&7_u8)
     })
     .unwrap();
     assert_eq!(bytes, [b'I', b'W', 7, 0, 0, 0, 0, 0, 0, 0, 1, 7]);
 
-    let bytes = encode_projected_to_slice_with(&mut [], Encoding::Payload, LIMITS, |destination| {
-        destination.write(&())
-    })
-    .unwrap();
+    let bytes =
+        encode_value_to_slice_with(&mut [], Encoding::Payload, LIMITS, |mut destination| {
+            destination.write_value(&())
+        })
+        .unwrap();
     assert!(bytes.is_empty());
 }
 
@@ -702,7 +701,7 @@ fn extensions_inside_a_recursive_tuple_slot_keep_the_fixed_neighbors() {
     let mut scratch = [0; 8];
     let mut bytes = Vec::new();
     for writer_knows_marker in [false, true] {
-        encode_projected_into(&mut bytes, FRAME, LIMITS, |ctx| {
+        encode_value_into(&mut bytes, FRAME, LIMITS, |ctx| {
             let fields = ctx.nested(|chain| {
                 chain.nested(|option| {
                     option.nested(|child| {
@@ -731,7 +730,7 @@ fn extensions_inside_a_recursive_tuple_slot_keep_the_fixed_neighbors() {
         .unwrap();
         for reader_knows_marker in [false, true] {
             let (head, chain, tail) =
-                decode_projected(&bytes, FRAME, LIMITS, |packet: Packet<'_>, ctx| {
+                decode_value(&bytes, FRAME, LIMITS, |packet: Packet<'_>, ctx| {
                     ctx.admit_allocation::<(u8, bool)>(2)?;
                     let mut output = Vec::with_capacity(2);
                     ctx.nested(|child| {

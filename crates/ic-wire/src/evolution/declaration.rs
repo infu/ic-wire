@@ -145,7 +145,7 @@ impl<'de: 'a, 'a, T> Deserialize<'de> for RecoverSlot<'a, T> {
     }
 }
 
-#[cfg(any(feature = "derive", feature = "evolution-derive"))]
+#[cfg(feature = "derive")]
 pub use ic_wire_derive::Evolve;
 
 #[doc(hidden)]

@@ -74,6 +74,7 @@ pub fn encoded_len<T: Serialize + ?Sized>(
 ///
 /// # Errors
 /// Returns the same errors as [`encode_into`]. No partial output is returned.
+#[cfg(test)]
 pub fn encode<T: Serialize + ?Sized>(
     value: &T,
     encoding: Encoding,
@@ -95,6 +96,7 @@ pub fn encode<T: Serialize + ?Sized>(
 /// # Errors
 /// Returns Limit for exhausted allowances, Allocation for failed output
 /// reservation, otherwise Malformed for serialization failure.
+#[cfg(test)]
 pub fn encode_into<'out, T: Serialize + ?Sized>(
     value: &T,
     encoding: Encoding,
@@ -145,6 +147,7 @@ pub(super) fn write_vec<T: Serialize + ?Sized>(
 /// # Errors
 /// Returns Limit for exhausted allowances or a short destination, otherwise
 /// Malformed for serialization failure (including growth between passes).
+#[cfg(test)]
 pub fn encode_to_slice<'out, T: Serialize + ?Sized>(
     value: &T,
     encoding: Encoding,
@@ -167,6 +170,7 @@ pub fn encode_to_slice<'out, T: Serialize + ?Sized>(
     Ok(&output[..written])
 }
 
+#[cfg(test)]
 pub(super) fn write_payload<T: Serialize + ?Sized>(
     value: &T,
     budget: &Budget,
@@ -185,7 +189,6 @@ pub(super) fn write_payload<T: Serialize + ?Sized>(
     .map_err(|_| budget.error())
 }
 
-#[cfg(feature = "evolution")]
 pub(super) fn write_scratch<T: Serialize + ?Sized>(
     value: &T,
     budget: &Budget,
@@ -196,7 +199,6 @@ pub(super) fn write_scratch<T: Serialize + ?Sized>(
     write_bounded_slice::<T, true>(value, budget, depth, output, capacity_kind)
 }
 
-#[cfg(feature = "evolution")]
 pub(super) fn write_bounded_slice<T: Serialize + ?Sized, const CHARGE_SCRATCH: bool>(
     value: &T,
     budget: &Budget,
@@ -224,7 +226,6 @@ pub(super) fn write_bounded_slice<T: Serialize + ?Sized, const CHARGE_SCRATCH: b
 
 // Final output uses the meter's configured byte reservation. Additional
 // staging writes debit the remaining allocation allowance.
-#[cfg(feature = "evolution")]
 struct BoundedSlice<'a, 'budget, const CHARGE_SCRATCH: bool> {
     output: &'a mut [u8],
     budget: &'budget Budget,
@@ -232,7 +233,6 @@ struct BoundedSlice<'a, 'budget, const CHARGE_SCRATCH: bool> {
     initial_len: usize,
 }
 
-#[cfg(feature = "evolution")]
 impl<const CHARGE_SCRATCH: bool> BoundedSlice<'_, '_, CHARGE_SCRATCH> {
     #[inline]
     fn take(&mut self, len: usize) -> postcard::Result<&mut [u8]> {
@@ -248,7 +248,6 @@ impl<const CHARGE_SCRATCH: bool> BoundedSlice<'_, '_, CHARGE_SCRATCH> {
     }
 }
 
-#[cfg(feature = "evolution")]
 impl<const CHARGE_SCRATCH: bool> Flavor for BoundedSlice<'_, '_, CHARGE_SCRATCH> {
     type Output = usize;
 

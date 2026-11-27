@@ -1,12 +1,9 @@
 //! Regression for projection of known nested fields before optional recovery.
-#![cfg(all(
-    feature = "evolution",
-    any(feature = "derive", feature = "evolution-derive")
-))]
+#![cfg(feature = "derive")]
 
 use ic_wire::{
     Encoding, Error, LimitKind, Limits,
-    evolution::{Evolve, ExtensionSlot, RecoverSlot, RecoveryContext, decode_projected},
+    evolution::{Evolve, ExtensionSlot, Projected, RecoverSlot, RecoveryContext, decode_projected},
 };
 use serde::Deserialize;
 
@@ -52,7 +49,9 @@ fn read(bytes: &[u8], limits: Limits) -> Result<(Option<Branch>, u8), Error> {
         bytes,
         Encoding::Payload,
         limits,
-        |message: Message<'_>, ctx| {
+        |root: Projected<'_, Message<'_>>, ctx| {
+            root.extensions.visit(ctx, |_, _| Ok(()))?;
+            let message = root.core;
             let branch = ctx.nested(|ctx| {
                 message.0.project(ctx, |slot, scope| {
                     let mut active = None;
@@ -81,10 +80,10 @@ fn read(bytes: &[u8], limits: Limits) -> Result<(Option<Branch>, u8), Error> {
 
 #[test]
 fn missing_required_field_cannot_hide_a_known_nested_error() {
-    let missing_generation = [1, 7, 6, 2, 4, 3, 1, 1, 1, 23];
+    let missing_generation = [1, 7, 6, 2, 4, 3, 1, 1, 1, 23, 0];
     assert_eq!(read(&missing_generation, LIMITS), Ok((None, 23)));
 
-    let complete = [1, 10, 9, 1, 1, 7, 2, 4, 3, 1, 1, 1, 23];
+    let complete = [1, 10, 9, 1, 1, 7, 2, 4, 3, 1, 1, 1, 23, 0];
     assert_eq!(
         read(&complete, LIMITS),
         Ok((Some(Some((7, Some(true)))), 23))

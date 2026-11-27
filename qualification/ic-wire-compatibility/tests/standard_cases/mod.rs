@@ -1,9 +1,10 @@
-use super::{limits, run_typescript};
+use super::{grouped_messages, limits, run_typescript};
+use crate::support::{decode, encode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{borrow::Cow, collections::BTreeMap};
+use wire::Encoding;
 use wire::typescript::{Method, PayloadLimits, SchemaLimits, ValidatedRegistry, Wire};
-use wire::{Encoding, decode, encode};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Wire)]
 #[wire(crate = "wire", fixed)]
@@ -33,24 +34,33 @@ fn standard_shapes_preserve_prefixes_tags_and_traversal() {
         types["Outcome"],
         json!({"k":"result","ok":{"k":"array","max":2,"item":{"k":"u","bits":8}},"err":{"k":"tuple","items":[{"k":"u","bits":16},{"k":"bool"}]}})
     );
-    let graph = ValidatedRegistry::from_metadata(&types, SchemaLimits::default()).unwrap();
+    let graph =
+        ValidatedRegistry::from_metadata(&grouped_messages(types.clone()), SchemaLimits::default())
+            .unwrap();
     let policy = PayloadLimits {
         bytes: 128,
         nodes: 32,
         depth: 8,
     };
-    let methods: Vec<_> = ["Outcome", "Pair", "Choice", "Slice", "Text", "EmptyArray"]
-        .into_iter()
-        .enumerate()
-        .map(|(index, name)| Method {
-            export: ["outcome", "pair", "choice", "slice", "text", "emptyArray"][index],
-            id: index as u64 + 1,
-            request: name,
-            response: name,
-            request_limits: policy,
-            response_limits: policy,
-        })
-        .collect();
+    let methods: Vec<_> = [
+        "MessageOutcome",
+        "MessagePair",
+        "MessageChoice",
+        "MessageSlice",
+        "MessageText",
+        "MessageEmptyArray",
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, name)| Method {
+        export: ["outcome", "pair", "choice", "slice", "text", "emptyArray"][index],
+        id: index as u64 + 1,
+        request: name,
+        response: name,
+        request_limits: policy,
+        response_limits: policy,
+    })
+    .collect();
     let cases = json!([
         {"method":"outcome","root":"Outcome","value":{"ok":[0,255]},"bytes":[0,0,255],"nodes":4,"depth":3},
         {"method":"outcome","root":"Outcome","value":{"err":[128,true]},"bytes":[1,128,1,1],"nodes":4,"depth":3},
@@ -61,7 +71,7 @@ fn standard_shapes_preserve_prefixes_tags_and_traversal() {
         {"method":"text","root":"Text","value":"é","bytes":[2,195,169],"nodes":1,"depth":1},
         {"method":"emptyArray","root":"EmptyArray","value":[],"bytes":[],"nodes":1,"depth":1}
     ]);
-    let fixture = json!({"types":types,"cases":cases,"module":graph.payload_module("outcomePayload","Outcome","./runtime-adapter.ts",policy, &Default::default(), |report| eprint!("{report}")).unwrap(),"frameModule":graph.method_module(&methods,"./runtime-adapter.ts", &Default::default(), |report| eprint!("{report}")).unwrap()});
+    let fixture = json!({"types":types,"cases":cases,"module":graph.payload_module("outcomePayload","MessageOutcome","./runtime-adapter.ts",policy, &Default::default(), |report| eprint!("{report}")).unwrap(),"frameModule":graph.method_module(&methods,"./runtime-adapter.ts", &Default::default(), |report| eprint!("{report}")).unwrap()});
     let output: Vec<Vec<u8>> =
         serde_json::from_value(run_typescript(&fixture, include_str!("exchange.mjs"))).unwrap();
     macro_rules! check {
@@ -87,11 +97,11 @@ fn standard_shapes_preserve_prefixes_tags_and_traversal() {
     check!(7, [u8; 0], []);
     // Result tags are u32 varints, not the single-byte Option discriminator.
     assert_eq!(
-        decode::<Outcome>(&[128, 0, 0, 255], Encoding::Payload, limits()).unwrap(),
+        decode::<Outcome>(&[128, 0, 0, 255, 0], Encoding::Payload, limits()).unwrap(),
         Ok([0, 255])
     );
     assert_eq!(
-        decode::<Outcome>(&[129, 0, 128, 1, 1], Encoding::Payload, limits()).unwrap(),
+        decode::<Outcome>(&[129, 0, 128, 1, 1, 0], Encoding::Payload, limits()).unwrap(),
         Err((128, true))
     );
 }

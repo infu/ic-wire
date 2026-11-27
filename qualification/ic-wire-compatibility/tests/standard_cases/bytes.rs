@@ -1,8 +1,9 @@
-use super::{limits, run_typescript};
+use crate::support::{decode, encode};
+use crate::{limits, message_type, run_typescript};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use wire::typescript::{PayloadLimits, SchemaLimits, ValidatedRegistry, Wire};
-use wire::{ByteArray, ByteBuf, Encoding, decode, encode};
+use wire::typescript::{PayloadLimits, Wire};
+use wire::{ByteArray, ByteBuf, Encoding};
 #[derive(Debug, PartialEq, Serialize, Deserialize, Wire)]
 #[wire(crate = "wire", fixed)]
 struct Envelope {
@@ -14,12 +15,11 @@ struct Envelope {
 }
 #[test]
 fn published_byte_types_and_optional_adapter_keep_bulk_layout() {
-    let graph =
-        ValidatedRegistry::from_type::<Envelope>("Envelope", SchemaLimits::default()).unwrap();
+    let graph = message_type::<Envelope>("Envelope");
     let module = graph
         .payload_module(
             "codec",
-            "Envelope",
+            "MessageEnvelope",
             "./runtime-adapter.ts",
             PayloadLimits {
                 bytes: 64,
@@ -31,9 +31,9 @@ fn published_byte_types_and_optional_adapter_keep_bulk_layout() {
         )
         .unwrap();
     let literals = vec![
-        vec![0, 255, 2, 0, 255, 2, 7, 8, 0],
-        vec![0, 255, 2, 0, 255, 2, 7, 8, 1, 0],
-        vec![0, 255, 2, 0, 255, 2, 7, 8, 1, 2, 3, 4],
+        vec![0, 255, 2, 0, 255, 2, 7, 8, 0, 0],
+        vec![0, 255, 2, 0, 255, 2, 7, 8, 1, 0, 0],
+        vec![0, 255, 2, 0, 255, 2, 7, 8, 1, 2, 3, 4, 0],
     ];
     let output: Vec<Vec<u8>> = serde_json::from_value(run_typescript(
         &json!({"module":module,"literals":literals}),

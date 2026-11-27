@@ -1,32 +1,31 @@
-use super::{limits, run_typescript};
+use crate::support::{decode, encode};
+use crate::{limits, message_type, run_typescript};
 use serde_json::json;
-use wire::typescript::{PayloadLimits, SchemaLimits, ValidatedRegistry};
-use wire::{Encoding, FiniteF32, FiniteF64, decode, encode};
+use wire::typescript::PayloadLimits;
+use wire::{Encoding, FiniteF32, FiniteF64};
 
 #[test]
 fn finite_floats_preserve_bits_and_refuse_nonfinite_values() {
-    let graph =
-        ValidatedRegistry::from_type::<(FiniteF32, FiniteF64)>("Floats", SchemaLimits::default())
-            .unwrap();
+    let graph = message_type::<(FiniteF32, FiniteF64)>("Floats");
     let module = graph
         .payload_module(
             "codec",
-            "Floats",
+            "MessageFloats",
             "./runtime-adapter.ts",
             PayloadLimits {
-                bytes: 12,
-                nodes: 3,
-                depth: 2,
+                bytes: 13,
+                nodes: 4,
+                depth: 3,
             },
             &Default::default(),
             |report| eprint!("{report}"),
         )
         .unwrap();
     let literals = vec![
-        vec![0; 12],
-        vec![0, 0, 0, 128, 0, 0, 0, 0, 0, 0, 0, 128],
-        vec![1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
-        vec![0, 0, 192, 63, 0, 0, 0, 0, 0, 0, 248, 63],
+        vec![0; 13],
+        vec![0, 0, 0, 128, 0, 0, 0, 0, 0, 0, 0, 128, 0],
+        vec![1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        vec![0, 0, 192, 63, 0, 0, 0, 0, 0, 0, 248, 63, 0],
     ];
     let output: Vec<Vec<u8>> = serde_json::from_value(run_typescript(
         &json!({"module":module,"literals":literals}),

@@ -84,9 +84,9 @@ jobs:
       - name: Check portable codec, host schemas and derive diagnostics
         run: |
           make lint lint-host lint-compatibility doc doc-host
-          cargo clippy -p ic-wire --features derive --lib --test derive_tests --locked -- -D warnings
+          cargo clippy -p ic-wire --features derive,typescript --lib --test derive_tests --locked -- -D warnings
           make test test-host test-compatibility
-          cargo test -p ic-wire --features derive --test derive_tests --locked
+          cargo test -p ic-wire --features derive,typescript --test derive_tests --locked
       - name: Check sparse evolution and upgrade manifests
         run: make test-evolution
       - name: Check Wire and Candid comparison matrix

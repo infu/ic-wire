@@ -26,6 +26,7 @@ use serde::Deserialize;
 /// During payload decoding exhausted allowances return [`Error::Limit`], other
 /// deserialization failures return [`Error::Malformed`]. A successful value
 /// followed by unused input returns [`Error::Trailing`].
+#[cfg(test)]
 pub fn decode<'de, T: Deserialize<'de>>(
     input: &'de [u8],
     encoding: Encoding,

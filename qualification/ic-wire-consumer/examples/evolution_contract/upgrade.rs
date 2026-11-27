@@ -154,6 +154,27 @@ mod tests {
     use wire::typescript::__private::{Value, json};
     use wire::typescript::{GenerationError, SchemaContext};
 
+    // These fixtures compare declarations inside the same sparse message root.
+    struct Message<T>(std::marker::PhantomData<T>);
+
+    impl<T: Wire> Wire for Message<T> {
+        fn schema(context: &mut SchemaContext) -> Result<Value, GenerationError> {
+            Ok(json!({
+                "k": "extension-tuple",
+                "items": [context.describe::<T>()?],
+                "extensions": []
+            }))
+        }
+    }
+
+    struct EmptyMessage;
+
+    impl Wire for EmptyMessage {
+        fn schema(_: &mut SchemaContext) -> Result<Value, GenerationError> {
+            Ok(json!({"k": "extension-tuple", "items": [], "extensions": []}))
+        }
+    }
+
     struct ClosedChoice<const REV: u8>;
 
     impl<const REV: u8> Wire for ClosedChoice<REV> {
@@ -423,8 +444,8 @@ mod tests {
 
     #[test]
     fn emitted_closed_enums_compare_ids_independent_of_declaration_order() {
-        type Old = ClosedChoice<0>;
-        type Reordered = ClosedChoice<1>;
+        type Old = Message<ClosedChoice<0>>;
+        type Reordered = Message<ClosedChoice<1>>;
         let old = emitted::<Old, Old>();
         let history = std::slice::from_ref(&old);
         assert_eq!(
@@ -436,23 +457,33 @@ mod tests {
             Compatibility::Preserved,
         );
         expect_break(
-            manifest_check::check(history, &emitted::<ClosedChoice<3>, Old>()).unwrap(),
-            "$.packet.request<Paused#4294967295>",
+            manifest_check::check(history, &emitted::<Message<ClosedChoice<3>>, Old>()).unwrap(),
+            "$.packet.request.0<Paused#4294967295>",
         );
-        assert!(method_manifest::<ClosedChoice<2>, ()>().is_err());
+        assert!(method_manifest::<Message<ClosedChoice<2>>, EmptyMessage>().is_err());
     }
 
     #[test]
     fn gives_each_emitted_comparison_its_own_bounded_work() {
-        let history: Vec<_> = (0..4).map(|_| emitted::<WideTuple, WideTuple>()).collect();
+        let history: Vec<_> = (0..4)
+            .map(|_| emitted::<Message<WideTuple>, Message<WideTuple>>())
+            .collect();
         assert_eq!(
-            manifest_check::check(&history, &emitted::<WideTuple, WideTuple>()).unwrap(),
+            manifest_check::check(
+                &history,
+                &emitted::<Message<WideTuple>, Message<WideTuple>>()
+            )
+            .unwrap(),
             Compatibility::Preserved,
         );
 
-        let complex = emitted::<RepeatedWideTuple, ()>();
+        let complex = emitted::<Message<RepeatedWideTuple>, EmptyMessage>();
         assert!(matches!(
-            manifest_check::check(&[emitted::<RepeatedWideTuple, ()>()], &complex).unwrap(),
+            manifest_check::check(
+                &[emitted::<Message<RepeatedWideTuple>, EmptyMessage>()],
+                &complex
+            )
+            .unwrap(),
             Compatibility::Unsupported {
                 reason: "schema check exceeds its complexity limit",
                 ..
@@ -534,32 +565,44 @@ mod tests {
         type Nested<T> = RecoverSlot<'static, (u8, RecoverSlot<'static, Option<T>>)>;
 
         expect_break(
-            manifest_check::check(&[emitted::<(), Old>()], &emitted::<(), New>()).unwrap(),
-            "$.packet.response<Future#9>",
+            manifest_check::check(
+                &[emitted::<EmptyMessage, Message<Old>>()],
+                &emitted::<EmptyMessage, Message<New>>(),
+            )
+            .unwrap(),
+            "$.packet.response.0<Future#9>",
         );
         assert_eq!(
             manifest_check::check(
-                &[emitted::<(), Nested<Old>>()],
-                &emitted::<(), Nested<New>>()
+                &[emitted::<EmptyMessage, Message<Nested<Old>>>()],
+                &emitted::<EmptyMessage, Message<Nested<New>>>()
             )
             .unwrap(),
-            Compatibility::Drops(vec!["$.packet.response.some.1".into()]),
+            Compatibility::Drops(vec!["$.packet.response.0.some.1".into()]),
         );
         expect_break(
             manifest_check::check(
-                &[emitted::<(), Nested<Old>>()],
-                &emitted::<(), Nested<Changed>>(),
+                &[emitted::<EmptyMessage, Message<Nested<Old>>>()],
+                &emitted::<EmptyMessage, Message<Nested<Changed>>>(),
             )
             .unwrap(),
-            "$.packet.response.some.1.some.some<Ready#1>",
+            "$.packet.response.0.some.1.some.some<Ready#1>",
         );
         assert_eq!(
-            manifest_check::check(&[emitted::<(), Optional>()], &emitted::<(), New>()).unwrap(),
-            Compatibility::Drops(vec!["$.packet.response<Future#9>".into()]),
+            manifest_check::check(
+                &[emitted::<EmptyMessage, Message<Optional>>()],
+                &emitted::<EmptyMessage, Message<New>>()
+            )
+            .unwrap(),
+            Compatibility::Drops(vec!["$.packet.response.0<Future#9>".into()]),
         );
         expect_break(
-            manifest_check::check(&[emitted::<Optional, ()>()], &emitted::<Old, ()>()).unwrap(),
-            "$.packet.request",
+            manifest_check::check(
+                &[emitted::<Message<Optional>, EmptyMessage>()],
+                &emitted::<Message<Old>, EmptyMessage>(),
+            )
+            .unwrap(),
+            "$.packet.request.0",
         );
     }
 
@@ -570,32 +613,36 @@ mod tests {
         type Nested<T, Suffix> = RecoverSlot<'static, (u8, RecoverSlot<'static, (T, Suffix)>)>;
 
         expect_break(
-            manifest_check::check(&[emitted::<Before, ()>()], &emitted::<After, ()>()).unwrap(),
+            manifest_check::check(
+                &[emitted::<Before, EmptyMessage>()],
+                &emitted::<After, EmptyMessage>(),
+            )
+            .unwrap(),
             "$.packet.request.epoch#7",
         );
         assert_eq!(
             manifest_check::check(
-                &[emitted::<Nested<Before, bool>, ()>()],
-                &emitted::<Nested<After, bool>, ()>(),
+                &[emitted::<Message<Nested<Before, bool>>, EmptyMessage>()],
+                &emitted::<Message<Nested<After, bool>>, EmptyMessage>(),
             )
             .unwrap(),
-            Compatibility::Drops(vec!["$.packet.request.some.1".into()]),
+            Compatibility::Drops(vec!["$.packet.request.0.some.1".into()]),
         );
         expect_break(
             manifest_check::check(
-                &[emitted::<Nested<Before, bool>, ()>()],
-                &emitted::<Nested<After, u8>, ()>(),
+                &[emitted::<Message<Nested<Before, bool>>, EmptyMessage>()],
+                &emitted::<Message<Nested<After, u8>>, EmptyMessage>(),
             )
             .unwrap(),
-            "$.packet.request.some.1.some.1",
+            "$.packet.request.0.some.1.some.1",
         );
         expect_break(
             manifest_check::check(
-                &[emitted::<Option<Before>, ()>()],
-                &emitted::<Option<After>, ()>(),
+                &[emitted::<Message<Option<Before>>, EmptyMessage>()],
+                &emitted::<Message<Option<After>>, EmptyMessage>(),
             )
             .unwrap(),
-            "$.packet.request.some.epoch#7",
+            "$.packet.request.0.some.epoch#7",
         );
     }
 
@@ -641,44 +688,66 @@ mod tests {
             #[wire(extensions)] ExtensionSlot<'static, CSlots>,
         );
 
-        let a = emitted::<Option<A>, Option<A>>();
-        let b = emitted::<Option<B>, Option<B>>();
-        let c = emitted::<Option<C>, Option<C>>();
+        let a = emitted::<Message<Option<A>>, Message<Option<A>>>();
+        let b = emitted::<Message<Option<B>>, Message<Option<B>>>();
+        let c = emitted::<Message<Option<C>>, Message<Option<C>>>();
         assert_eq!(
-            manifest_check::check(&[emitted::<Option<A>, ()>()], &emitted::<Option<C>, ()>())
-                .unwrap(),
+            manifest_check::check(
+                &[emitted::<Message<Option<A>>, EmptyMessage>()],
+                &emitted::<Message<Option<C>>, EmptyMessage>()
+            )
+            .unwrap(),
             Compatibility::Preserved,
         );
         assert_eq!(
             manifest_check::check(&[a, b], &c).unwrap(),
             Compatibility::Drops(vec![
-                "$.packet.response.some.2".into(),
-                "$.packet.response.some.3".into(),
+                "$.packet.response.0.some.2".into(),
+                "$.packet.response.0.some.3".into(),
             ]),
         );
         expect_break(
-            manifest_check::check(&[emitted::<(), B>()], &emitted::<(), A>()).unwrap(),
+            manifest_check::check(
+                &[emitted::<EmptyMessage, B>()],
+                &emitted::<EmptyMessage, A>(),
+            )
+            .unwrap(),
             "$.packet.response.2",
         );
         expect_break(
-            manifest_check::check(&[emitted::<B, ()>()], &emitted::<A, ()>()).unwrap(),
+            manifest_check::check(
+                &[emitted::<B, EmptyMessage>()],
+                &emitted::<A, EmptyMessage>(),
+            )
+            .unwrap(),
             "$.packet.request.2",
         );
         expect_break(
-            manifest_check::check(&[emitted::<(bool, u16), ()>()], &emitted::<A, ()>()).unwrap(),
-            "$.packet.request",
+            manifest_check::check(
+                &[emitted::<Message<(bool, u16)>, EmptyMessage>()],
+                &emitted::<Message<A>, EmptyMessage>(),
+            )
+            .unwrap(),
+            "$.packet.request.0",
         );
         expect_break(
-            manifest_check::check(&[emitted::<(), A>()], &emitted::<(), (bool, u16)>()).unwrap(),
-            "$.packet.response",
+            manifest_check::check(
+                &[emitted::<EmptyMessage, Message<A>>()],
+                &emitted::<EmptyMessage, Message<(bool, u16)>>(),
+            )
+            .unwrap(),
+            "$.packet.response.0",
         );
 
-        let candidate: Value = method_manifest::<C, ()>().unwrap().parse().unwrap();
+        let candidate: Value = method_manifest::<C, EmptyMessage>()
+            .unwrap()
+            .parse()
+            .unwrap();
         let tuple = candidate["schemas"]["Request"]["name"]
             .as_str()
             .unwrap()
             .to_string();
-        let history = [emitted::<A, ()>(), emitted::<B, ()>()];
+        let history = [emitted::<A, EmptyMessage>(), emitted::<B, EmptyMessage>()];
         let check_candidate =
             |document| manifest_check::check(&history, &service(document, "update", json!({})));
 

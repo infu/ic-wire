@@ -6,9 +6,9 @@ use ic_wire_consumer::{
 use wire::LimitKind;
 const REQUEST: &[u8] = &[
     73, 87, 7, 0, 0, 0, 0, 0, 0, 0, 0, 128, 1, 6, 115, 101, 110, 115, 111, 114, 2, 0, 255, 6, 0,
-    128, 0, 0, 255, 127, 2, 1, 128, 1,
+    128, 0, 0, 255, 127, 2, 1, 128, 1, 0,
 ];
-const RESPONSE: &[u8] = &[73, 87, 7, 0, 0, 0, 0, 0, 0, 0, 1, 129, 1, 1];
+const RESPONSE: &[u8] = &[73, 87, 7, 0, 0, 0, 0, 0, 0, 0, 1, 129, 1, 1, 0];
 #[test]
 fn frozen_contract_and_refusals() {
     let request = sample_upload().unwrap();
@@ -38,7 +38,7 @@ fn frozen_contract_and_refusals() {
         Err(Error::Limit(LimitKind::Bytes))
     );
     let mut invalid = RESPONSE.to_vec();
-    *invalid.last_mut().unwrap() = 2;
+    invalid[RESPONSE.len() - 2] = 2;
     assert_eq!(decode_receipt(&invalid), Err(Error::Malformed));
 }
 

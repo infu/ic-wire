@@ -1,17 +1,17 @@
-use super::{limits, run_typescript};
+use crate::support::{decode, encode};
+use crate::{limits, message_type, run_typescript};
 use ic_platform_types::{Account, Principal};
 use serde_json::json;
-use wire::typescript::{PayloadLimits, SchemaLimits, ValidatedRegistry};
-use wire::{Encoding, decode, encode};
+use wire::Encoding;
+use wire::typescript::PayloadLimits;
 
 #[test]
 fn platform_identity_supplier_preserves_absent_and_explicit_zero() {
-    let graph =
-        ValidatedRegistry::from_type::<Account>("Account", SchemaLimits::default()).unwrap();
+    let graph = message_type::<Account>("Account");
     let module = graph
         .payload_module(
             "codec",
-            "Account",
+            "MessageAccount",
             "./runtime-adapter.ts",
             PayloadLimits {
                 bytes: 128,
@@ -23,8 +23,8 @@ fn platform_identity_supplier_preserves_absent_and_explicit_zero() {
         )
         .unwrap();
     let mut explicit = vec![1, 4, 1, 32];
-    explicit.extend([0; 32]);
-    let literals = vec![vec![1, 4, 0], explicit];
+    explicit.extend([0; 33]);
+    let literals = vec![vec![1, 4, 0, 0], explicit];
     let output: Vec<Vec<u8>> = serde_json::from_value(run_typescript(
         &json!({"module":module,"literals":literals}),
         include_str!("platform.mjs"),
@@ -49,6 +49,7 @@ fn platform_identity_supplier_preserves_absent_and_explicit_zero() {
         let value = Principal::try_from_slice(&vec![7; length]).unwrap();
         let mut bytes = vec![length as u8];
         bytes.extend(vec![7; length]);
+        bytes.push(0);
         assert_eq!(encode(&value, Encoding::Payload, limits()).unwrap(), bytes);
         assert_eq!(
             decode::<Principal>(&bytes, Encoding::Payload, limits()).unwrap(),

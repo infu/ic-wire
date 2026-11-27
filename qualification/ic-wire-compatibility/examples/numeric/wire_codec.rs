@@ -1,4 +1,5 @@
 use super::Value;
+use wire::evolution::{Projected, decode_projected, encode_projected_into};
 
 const LIMITS: wire::Limits = wire::Limits {
     bytes: 65536,
@@ -8,9 +9,23 @@ const LIMITS: wire::Limits = wire::Limits {
 };
 
 pub(super) fn encode(value: &Value) -> Vec<u8> {
-    wire::encode(value, wire::Encoding::Payload, LIMITS).unwrap()
+    let mut output = Vec::new();
+    encode_projected_into(&mut output, wire::Encoding::Payload, LIMITS, |_| {
+        Ok(Projected::empty(value))
+    })
+    .unwrap();
+    output
 }
 
 pub(super) fn decode(bytes: &[u8]) -> Value {
-    wire::decode(bytes, wire::Encoding::Payload, LIMITS).unwrap()
+    decode_projected(
+        bytes,
+        wire::Encoding::Payload,
+        LIMITS,
+        |root: Projected<'_, Value>, context| {
+            root.extensions.visit(context, |_, _| Ok(()))?;
+            Ok(root.core)
+        },
+    )
+    .unwrap()
 }

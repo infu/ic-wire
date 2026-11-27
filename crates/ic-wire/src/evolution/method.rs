@@ -7,9 +7,9 @@ use core::marker::PhantomData;
 /// A value with typed encoding and projection through the evolutionary codec.
 ///
 /// Decoded values may borrow from the frame or payload for `'de`.
+/// Both directions must use a sparse message root.
 pub trait Evolving<'de>: Sized {
-    /// Encode one complete value into reusable output. Scratch is temporary
-    /// storage for preparing evolutionary envelopes.
+    /// Encode one complete value into reusable output.
     ///
     /// # Errors
     /// Returns an encoding or admission error and leaves output empty.
@@ -18,7 +18,6 @@ pub trait Evolving<'de>: Sized {
         output: &mut Vec<u8>,
         encoding: Encoding,
         limits: Limits,
-        scratch: &mut [u8],
     ) -> Result<(), Error>;
 
     /// Decode and project one complete frame or payload from the given input.
@@ -27,6 +26,71 @@ pub trait Evolving<'de>: Sized {
     /// Returns a framing, decoding, incompatibility, or admission error.
     fn decode_evolving(input: &'de [u8], encoding: Encoding, limits: Limits)
     -> Result<Self, Error>;
+}
+
+/// Encode a complete Wire message into owned output.
+///
+/// # Errors
+/// Returns the first preparation, encoding or allowance failure.
+pub fn encode<'de, T: Evolving<'de>>(
+    value: &T,
+    encoding: Encoding,
+    limits: Limits,
+) -> Result<Vec<u8>, Error> {
+    let mut output = Vec::new();
+    encode_into(value, encoding, limits, &mut output)?;
+    Ok(output)
+}
+
+/// Encode a complete Wire message into reusable output.
+///
+/// # Errors
+/// Returns the first preparation, encoding or allowance failure. Output is
+/// empty on error.
+pub fn encode_into<'out, 'de, T: Evolving<'de>>(
+    value: &T,
+    encoding: Encoding,
+    limits: Limits,
+    output: &'out mut Vec<u8>,
+) -> Result<&'out [u8], Error> {
+    output.clear();
+    if let Err(error) = value.encode_evolving(output, encoding, limits) {
+        output.clear();
+        return Err(error);
+    }
+    Ok(output)
+}
+
+/// Encode a derived Wire message directly into caller-owned output.
+///
+/// # Errors
+/// Returns a preparation, encoding, allowance or destination capacity error.
+/// Only the returned prefix on success contains a complete message.
+pub fn encode_to_slice<'out, 'de, T: Evolving<'de> + super::inline::Inline<'de>>(
+    value: &T,
+    encoding: Encoding,
+    limits: Limits,
+    output: &'out mut [u8],
+) -> Result<&'out [u8], Error> {
+    super::encode_value_to_slice_with(output, encoding, limits, |mut destination| {
+        let context = destination.context();
+        super::inline::with_scratch(T::MAY_STAGE, context.budget, |scratch| {
+            let (prepared, _) = value.prepare(&context, scratch)?;
+            destination.write_value(&prepared)
+        })
+    })
+}
+
+/// Admit and decode one complete Wire message with its typed projection.
+///
+/// # Errors
+/// Returns a framing, decoding, compatibility or allowance error.
+pub fn decode<'de, T: Evolving<'de>>(
+    input: &'de [u8],
+    encoding: Encoding,
+    limits: Limits,
+) -> Result<T, Error> {
+    T::decode_evolving(input, encoding, limits)
 }
 
 /// Bind an export name, direction limits and Rust DTOs to Wire frames.
@@ -85,21 +149,17 @@ impl<Request, Reply> Method<Request, Reply> {
     ///
     /// # Errors
     /// Returns an encoding or request admission error.
-    pub fn encode_request<'de>(
-        &self,
-        value: &Request,
-        output: &mut Vec<u8>,
-        scratch: &mut [u8],
-    ) -> Result<(), Error>
+    pub fn encode_request<'de>(&self, value: &Request, output: &mut Vec<u8>) -> Result<(), Error>
     where
         Request: Evolving<'de>,
     {
-        value.encode_evolving(
-            output,
+        encode_into(
+            value,
             self.encoding(Direction::Request),
             self.request_limits,
-            scratch,
+            output,
         )
+        .map(|_| ())
     }
 
     /// Decode a request frame for this method.
@@ -110,7 +170,7 @@ impl<Request, Reply> Method<Request, Reply> {
     where
         Request: Evolving<'de>,
     {
-        Request::decode_evolving(
+        decode(
             input,
             self.encoding(Direction::Request),
             self.request_limits,
@@ -121,21 +181,17 @@ impl<Request, Reply> Method<Request, Reply> {
     ///
     /// # Errors
     /// Returns an encoding or reply admission error.
-    pub fn encode_reply<'de>(
-        &self,
-        value: &Reply,
-        output: &mut Vec<u8>,
-        scratch: &mut [u8],
-    ) -> Result<(), Error>
+    pub fn encode_reply<'de>(&self, value: &Reply, output: &mut Vec<u8>) -> Result<(), Error>
     where
         Reply: Evolving<'de>,
     {
-        value.encode_evolving(
-            output,
+        encode_into(
+            value,
             self.encoding(Direction::Response),
             self.reply_limits,
-            scratch,
+            output,
         )
+        .map(|_| ())
     }
 
     /// Decode a reply frame for this method.
@@ -146,7 +202,7 @@ impl<Request, Reply> Method<Request, Reply> {
     where
         Reply: Evolving<'de>,
     {
-        Reply::decode_evolving(input, self.encoding(Direction::Response), self.reply_limits)
+        decode(input, self.encoding(Direction::Response), self.reply_limits)
     }
 
     const fn encoding(&self, direction: Direction) -> Encoding {
@@ -160,6 +216,7 @@ impl<Request, Reply> Method<Request, Reply> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::evolution::{Projected, decode_projected, encode_projected_into};
     use crate::{LimitKind, TextRef};
     use serde::{Deserialize, Serialize};
 
@@ -175,9 +232,9 @@ mod tests {
             output: &mut Vec<u8>,
             encoding: Encoding,
             limits: Limits,
-            _scratch: &mut [u8],
         ) -> Result<(), Error> {
-            crate::encode_into(self, encoding, limits, output).map(|_| ())
+            encode_projected_into(output, encoding, limits, |_| Ok(Projected::empty(self)))
+                .map(|_| ())
         }
 
         fn decode_evolving(
@@ -185,7 +242,15 @@ mod tests {
             encoding: Encoding,
             limits: Limits,
         ) -> Result<Self, Error> {
-            crate::decode(input, encoding, limits)
+            decode_projected(
+                input,
+                encoding,
+                limits,
+                |root: Projected<'_, Self>, context| {
+                    root.extensions.visit(context, |_, _| Ok(()))?;
+                    Ok(root.core)
+                },
+            )
         }
     }
 
@@ -195,9 +260,9 @@ mod tests {
             output: &mut Vec<u8>,
             encoding: Encoding,
             limits: Limits,
-            _scratch: &mut [u8],
         ) -> Result<(), Error> {
-            crate::encode_into(self, encoding, limits, output).map(|_| ())
+            encode_projected_into(output, encoding, limits, |_| Ok(Projected::empty(self)))
+                .map(|_| ())
         }
 
         fn decode_evolving(
@@ -205,7 +270,15 @@ mod tests {
             encoding: Encoding,
             limits: Limits,
         ) -> Result<Self, Error> {
-            crate::decode(input, encoding, limits)
+            decode_projected(
+                input,
+                encoding,
+                limits,
+                |root: Projected<'_, Self>, context| {
+                    root.extensions.visit(context, |_, _| Ok(()))?;
+                    Ok(root.core)
+                },
+            )
         }
     }
 
@@ -216,7 +289,7 @@ mod tests {
         depth: 16,
     };
     const REPLY_LIMITS: Limits = Limits {
-        bytes: 12,
+        bytes: 13,
         ..REQUEST_LIMITS
     };
     const LOOKUP: Method<Request<'static>, Reply> =
@@ -227,13 +300,13 @@ mod tests {
         assert_eq!(LOOKUP.name(), "lookup");
         assert_eq!(LOOKUP.id(), method_id("lookup"));
         assert_eq!(LOOKUP.request_limits().bytes, 64);
-        assert_eq!(LOOKUP.reply_limits().bytes, 12);
+        assert_eq!(LOOKUP.reply_limits().bytes, 13);
 
         let value = alloc::string::String::from("hello");
         let mut input = Vec::new();
         let method: Method<Request<'_>, Reply> = LOOKUP;
         method
-            .encode_request(&Request(TextRef::new(&value).unwrap()), &mut input, &mut [])
+            .encode_request(&Request(TextRef::new(&value).unwrap()), &mut input)
             .unwrap();
         let decoded = method.decode_request(&input).unwrap();
         assert_eq!(decoded.0.as_str(), "hello");
@@ -242,8 +315,8 @@ mod tests {
         let other = Method::<Request<'_>, Reply>::new("other", REQUEST_LIMITS, REPLY_LIMITS);
         assert_eq!(other.decode_request(&input), Err(Error::Identity));
         let mut reply = Vec::new();
-        method.encode_reply(&Reply(7), &mut reply, &mut []).unwrap();
-        assert_eq!(reply[10], 1);
+        method.encode_reply(&Reply(7), &mut reply).unwrap();
+        assert_eq!(reply[10..], [1, 7, 0]);
         assert_eq!(method.decode_reply(&reply), Ok(Reply(7)));
         assert_eq!(method.decode_request(&reply), Err(Error::Identity));
     }
@@ -252,7 +325,7 @@ mod tests {
     fn reply_limits_apply_to_both_encoding_and_decoding() {
         let mut reply = alloc::vec![1, 2, 3];
         assert_eq!(
-            LOOKUP.encode_reply(&Reply(128), &mut reply, &mut []),
+            LOOKUP.encode_reply(&Reply(128), &mut reply),
             Err(Error::Limit(LimitKind::Bytes))
         );
         assert!(reply.is_empty());

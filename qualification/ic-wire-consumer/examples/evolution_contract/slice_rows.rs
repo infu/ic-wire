@@ -2,7 +2,7 @@
 use serde::{Serialize, Serializer, ser::SerializeSeq};
 use wire::{
     Error, Limits, TextRef,
-    evolution::{WriteContext, encode_projected_to_slice_with},
+    evolution::{Projected, WriteContext, encode_projected_to_slice_with},
 };
 
 #[derive(Serialize)]
@@ -61,7 +61,7 @@ pub(super) fn encode<const REV: u8>(
 ) -> Result<&[u8], Error> {
     assert!(count <= 1_024);
     encode_projected_to_slice_with(output, super::REQUEST, limits, |output| {
-        let context = output.context();
+        let context = output.context().child();
         let boundary = count.div_ceil(2);
         let rows = |range| Rows::<'_, '_, REV> {
             context: &context,
@@ -80,9 +80,9 @@ pub(super) fn encode<const REV: u8>(
                 sequence: 257,
             },
         ];
-        output.write(&Batch {
+        output.write(&Projected::empty(Batch {
             groups: groups.as_slice(),
             suffix: TextRef::new("tail ✅")?,
-        })
+        }))
     })
 }

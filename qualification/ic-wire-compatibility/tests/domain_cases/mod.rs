@@ -1,12 +1,13 @@
-use super::{limits, run_typescript};
+use super::{grouped_messages, limits, run_typescript};
+use crate::support::{decode, encode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BinaryHeap},
     num::NonZeroI64,
 };
+use wire::Encoding;
 use wire::typescript::{Method, PayloadLimits, SchemaLimits, ValidatedRegistry};
-use wire::{Encoding, decode, encode};
 
 macro_rules! record {
     ($new:ident,$ty:ty,$new_path:literal) => {
@@ -24,6 +25,9 @@ record!(F64, Vec<f64>, "wire::serde_packed::finite_f64");
 record!(Nonzero, Vec<NonZeroI64>, "wire::serde_packed::nonzero_i64");
 record!(Heap, BinaryHeap<u64>, "wire::serde_packed::heap_u64");
 fn native<T: Serialize + for<'a> Deserialize<'a>>(value: &T, bytes: &[u8]) {
+    let mut message = bytes.to_vec();
+    message.push(0);
+    let bytes = message.as_slice();
     assert_eq!(encode(value, Encoding::Payload, limits()).unwrap(), bytes);
     let decoded = decode::<T>(bytes, Encoding::Payload, limits()).unwrap();
     assert_eq!(
@@ -113,18 +117,20 @@ fn domain_adapters_match_literal_bytes_and_browser_runtime() {
         types["Nonzero"],
         json!({"k":"record","fixed":true,"fields":[{"name":"value","value":{"k":"packed","word":"i64","nonzero":true}}]})
     );
-    let graph = ValidatedRegistry::from_metadata(&types, SchemaLimits::default()).unwrap();
+    let graph =
+        ValidatedRegistry::from_metadata(&grouped_messages(types.clone()), SchemaLimits::default())
+            .unwrap();
     let policy = PayloadLimits {
         bytes: 64,
-        nodes: 2,
-        depth: 2,
+        nodes: 3,
+        depth: 3,
     };
     let names = [
-        ("bools", "Bools"),
-        ("floats32", "F32"),
-        ("floats64", "F64"),
-        ("nonzero", "Nonzero"),
-        ("heap", "Heap"),
+        ("bools", "MessageBools"),
+        ("floats32", "MessageF32"),
+        ("floats64", "MessageF64"),
+        ("nonzero", "MessageNonzero"),
+        ("heap", "MessageHeap"),
     ];
     let methods: Vec<_> = names
         .iter()
@@ -149,14 +155,17 @@ fn domain_adapters_match_literal_bytes_and_browser_runtime() {
     let module = graph
         .payload_module(
             "floats",
-            "F32",
+            "MessageF32",
             "./runtime-adapter.ts",
             policy,
             &BTreeMap::new(),
             |report| assert!(report.is_clean()),
         )
         .unwrap();
-    let expected = vec![bools, f32, f64, nonzero, heap];
+    let expected = [bools, f32, f64, nonzero, heap].map(|mut bytes| {
+        bytes.push(0);
+        bytes
+    });
     let output = run_typescript(
         &json!({"types":types,"module":module,"frameModule":frame,"bytes":expected}),
         include_str!("exchange.mjs"),
@@ -211,6 +220,7 @@ fn invalid_domain_values_and_heap_normalization_remain_explicit() {
     for word in [1_u64, 3, 3] {
         unordered.extend(word.to_le_bytes());
     }
+    unordered.push(0);
     let decoded = decode::<Heap>(&unordered, Encoding::Payload, limits()).unwrap();
     assert_eq!(decoded.value.clone().into_sorted_vec(), [1, 3, 3]);
     assert_ne!(
@@ -220,7 +230,7 @@ fn invalid_domain_values_and_heap_normalization_remain_explicit() {
     // Plain lists remain per-element Serde, without a bulk prefix or finite guard.
     assert_eq!(
         encode(&vec![1.0_f32], Encoding::Payload, limits()).unwrap(),
-        [1, 0, 0, 128, 63]
+        [1, 0, 0, 128, 63, 0]
     );
     assert!(encode(&vec![f32::INFINITY], Encoding::Payload, limits()).is_ok());
 }
